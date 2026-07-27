@@ -285,6 +285,10 @@
     }
     const plan=buildChangePlan(importedEvents,assetEvents);
     const summary={createdEvents:0,updatedEvents:0,addedFields:0,metadataUpdates:0,unchangedEvents:0,changedActions:[],validation,plan};
+    const syncGovernanceMetadata=compactObject(defaults.governanceMetadata||{});
+    const syncProposal=proposal=>proposal&&defaults.governanceProposalStatus
+      ?{...proposal,reviewStatus:String(defaults.governanceProposalStatus)}
+      :proposal;
 
     plan.forEach(change=>{
       const importedEvent=change.importedEvent||{};
@@ -300,8 +304,8 @@
           source:defaults.source||'PRD 提交',
           fields:change.newFields.map(field=>[...field]),
           fieldMeta:{},
-          governanceMetadata:{...(change.eventMetadataUpdates||{})},
-          governanceProposal:change.proposal
+          governanceMetadata:{...(change.eventMetadataUpdates||{}),...syncGovernanceMetadata},
+          governanceProposal:syncProposal(change.proposal)
         };
         (change.fieldRecords||[]).forEach(record=>{created.fieldMeta[record.key]={...record.metadata}});
         assetEvents.push(created);
@@ -331,8 +335,8 @@
           summary.metadataUpdates+=Object.keys(update.metadata).length;
         });
         existingEvent.governanceMetadata=existingEvent.governanceMetadata||{};
-        Object.assign(existingEvent.governanceMetadata,change.eventMetadataUpdates||{});
-        existingEvent.governanceProposal=change.proposal;
+        Object.assign(existingEvent.governanceMetadata,change.eventMetadataUpdates||{},syncGovernanceMetadata);
+        existingEvent.governanceProposal=syncProposal(change.proposal);
         if(change.proposalChanged)summary.metadataUpdates+=1;
         summary.metadataUpdates+=Object.keys(change.eventMetadataUpdates||{}).length;
         summary.updatedEvents+=1;
@@ -341,6 +345,15 @@
         return;
       }
 
+      if(Object.keys(syncGovernanceMetadata).length&&change.existingEvent){
+        change.existingEvent.governanceMetadata=change.existingEvent.governanceMetadata||{};
+        Object.assign(change.existingEvent.governanceMetadata,syncGovernanceMetadata);
+        change.existingEvent.governanceProposal=syncProposal(change.proposal||change.existingEvent.governanceProposal);
+        summary.metadataUpdates+=Object.keys(syncGovernanceMetadata).length+(defaults.governanceProposalStatus?1:0);
+        summary.updatedEvents+=1;
+        summary.changedActions.push(change.existingEvent.name);
+        return;
+      }
       summary.unchangedEvents+=1;
     });
 

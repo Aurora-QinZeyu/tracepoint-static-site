@@ -293,8 +293,8 @@
 
   function inferRule(event,defaults){
     if(defaults.rule)return defaults.rule;
-    if(event.callSites.length)return `前端代码已发现 ${event.callSites.length} 个直接调用点，具体触发时机待确认`;
-    return '前端代码已定义，暂未发现直接调用点，具体触发时机待确认';
+    if(event.callSites.length)return `前端代码发现 ${event.callSites.length} 个直接上报位置`;
+    return '前端代码仅定义，未发现直接上报位置';
   }
 
   function createAsset(event,repository,defaults){
@@ -305,6 +305,9 @@
       group:inferGroup(event,defaults),
       domain:inferDomain(event,defaults),
       status:defaults.status||(event.callSites.length?'已接入前端':'待确认'),
+      governanceMetadata:{
+        lifecycle:event.deprecated?'deprecated':event.callSites.length?'developing':'draft'
+      },
       rule:inferRule(event,defaults),
       source:defaults.source||'前端代码',
       fields:[...event.fields.values()].map(fieldTuple)

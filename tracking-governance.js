@@ -311,9 +311,29 @@
     return { fields: stableUnique(source.map(text).filter(Boolean)), aliases };
   }
 
+  function resolveBusinessFieldOverrides(options) {
+    const event = options?.event;
+    const source = [
+      ...asList(options?.businessFieldOverrides),
+      ...asList(event?.businessFieldOverrides),
+      ...asList(event?.governanceMetadata?.businessFieldOverrides)
+    ];
+    const aliases = new Set();
+    source.forEach(name => {
+      const raw = text(name);
+      if (!raw) return;
+      aliases.add(raw.toLowerCase());
+      aliases.add(suggestIdentifier(raw));
+    });
+    return aliases;
+  }
+
   function isCommonEnvelopeField(name, options) {
-    const common = resolveCommonEnvelopeFields(options || {});
+    const config = options || {};
     const raw = text(name);
+    const overrides = resolveBusinessFieldOverrides(config);
+    if (overrides.has(raw.toLowerCase()) || overrides.has(suggestIdentifier(raw))) return false;
+    const common = resolveCommonEnvelopeFields(config);
     return common.aliases.has(raw.toLowerCase()) || common.aliases.has(suggestIdentifier(raw));
   }
 
@@ -401,6 +421,16 @@
     if (canonicalType === 'array') return Array.isArray(sample);
     if (canonicalType === 'object') return isObject(sample);
     return true;
+  }
+
+  function normalizeContractFieldGroups(contract) {
+    return asList(contract?.coPresentFieldGroups).map(group => {
+      const source = isObject(group) ? group : { fields: group };
+      return {
+        fields: stableUnique(asList(source.fields).map(text).filter(Boolean)),
+        description: text(source.description)
+      };
+    }).filter(group => group.fields.length > 1);
   }
 
   function finalizeFieldValidation(index, raw, canonicalKey, typeInfo, commonEnvelope, issues) {
@@ -553,10 +583,16 @@
       addIssue(issues, 'warning', 'event-lifecycle-unsupported', 'metadata.lifecycle', '生命周期状态不在统一字典中', 'draft | developing | active | deprecated | archived');
     }
     const codeEvidence = isObject(source.codeEvidence) ? source.codeEvidence : {};
-    if (asList(codeEvidence.namespaces).length > 1) {
+    const contractVariantsReviewed = source?.governanceMetadata?.contractVariantsReviewed === true
+      && ['keep', 'alias', 'dual_write', 'replace'].includes(text(source.migrationStrategy));
+    if (asList(codeEvidence.namespaces).length > 1 && !contractVariantsReviewed) {
       addIssue(issues, 'warning', 'event-contract-variants', 'codeEvidence.namespaces', '同一 raw action 存在多个代码通道契约，请分别审核字段差异', undefined, { namespaces: cloneValue(codeEvidence.namespaces) });
     }
-    if (codeEvidence.deprecated && Number(codeEvidence.callSiteCount || 0) > 0) {
+    const deprecatedActiveUsageReviewed = source?.governanceMetadata?.deprecatedActiveUsageReviewed === true
+      && ['keep', 'alias', 'dual_write', 'replace'].includes(text(source.migrationStrategy));
+    if (codeEvidence.deprecated && Number(codeEvidence.callSiteCount || 0) > 0 && deprecatedActiveUsageReviewed) {
+      addIssue(issues, 'info', 'event-deprecated-active-usage-reviewed', 'codeEvidence.deprecated', '代码虽标记 deprecated，但已核对仍有直接调用，并已显式记录迁移策略；继续按活动埋点管理，不视为已下线');
+    } else if (codeEvidence.deprecated && Number(codeEvidence.callSiteCount || 0) > 0) {
       addIssue(issues, 'warning', 'event-deprecated-still-called', 'codeEvidence.deprecated', '代码已标记 deprecated，但仍发现直接调用，不能直接视为已下线');
     } else if (codeEvidence.deprecated) {
       addIssue(issues, 'info', 'event-deprecated-in-code', 'codeEvidence.deprecated', '代码已标记 deprecated，需确认下线与数据保留计划');
@@ -636,6 +672,9 @@
     const config = options || {};
     const eventResult = validateEvent(event, config);
     const issues = [];
+    const contracts = asList(event?.codeEvidence?.contracts || event?.wireContracts)
+      .filter(contract => isObject(contract));
+    const hasContractVariants = contracts.length > 1;
     const schemaBlockingCodes = new Set([
       'field-type-missing',
       'field-type-unsupported',
@@ -645,29 +684,138 @@
       'field-proposal-required-conflict',
       'field-proposal-nullable-conflict'
     ]);
-    eventResult.errors
-      .filter(issue => schemaBlockingCodes.has(issue.code))
-      .forEach(issue => addIssue(
-        issues,
-        'error',
-        `payload-schema-${issue.code}`,
-        issue.path,
-        `事件字段契约不可用于上报校验：${issue.message}`,
-        issue.suggestion,
-        { eventIssueCode: issue.code }
-      ));
+    if (!hasContractVariants) {
+      eventResult.errors
+        .filter(issue => schemaBlockingCodes.has(issue.code))
+        .forEach(issue => addIssue(
+          issues,
+          'error',
+          `payload-schema-${issue.code}`,
+          issue.path,
+          `事件字段契约不可用于上报校验：${issue.message}`,
+          issue.suggestion,
+          { eventIssueCode: issue.code }
+        ));
+    }
     if (!isObject(properties)) {
       addIssue(issues, 'error', 'payload-properties-invalid', 'properties', 'Properties 必须是 JSON object');
       return { ...finalizeIssues(issues), event: eventResult, properties: {} };
     }
-    const schema = new Map(eventResult.businessFields.map(field => [field.raw.rawName, field]));
+    const businessSchema = new Map(eventResult.businessFields.map(field => [field.raw.rawName, field]));
+    const propertyKeys = Object.keys(properties).filter(key => !isCommonEnvelopeField(key, { ...config, event }));
+    let selectedContract = null;
+    if (contracts.length > 0) {
+      const requestedNamespace = text(config.contractNamespace);
+      const requestedContractId = text(config.contractId);
+      const candidates = contracts.map(contract => {
+        const fields = asList(contract.fields);
+        const allowed = new Set(fields.map(field => text(field?.nameRaw)).filter(Boolean));
+        const required = fields.filter(field => field?.requiredObserved === true).map(field => text(field?.nameRaw)).filter(Boolean);
+        const unknownKeys = propertyKeys.filter(key => !allowed.has(key));
+        const missingKeys = required.filter(key => !Object.prototype.hasOwnProperty.call(properties, key));
+        const fieldMismatchKeys = fields.map(field => {
+          const key = text(field?.nameRaw);
+          if (!key || !Object.prototype.hasOwnProperty.call(properties, key)) return '';
+          const value = properties[key];
+          const base = businessSchema.get(key);
+          const typeInfo = normalizeType(field?.typeObserved);
+          const canonicalType = typeInfo.supported ? typeInfo.canonical : base?.canonical?.type;
+          const nullable = field?.nullableObserved === true
+            ? true
+            : field?.nullableObserved === false
+              ? false
+              : base?.raw?.nullable;
+          if (value === null) return nullable === true ? '' : key;
+          if (!sampleMatchesType(value, canonicalType)) return key;
+          const enumValues = asList(base?.raw?.enumValues);
+          if (enumValues.length && !enumValues.some(allowedValue => Object.is(allowedValue, value) || String(allowedValue) === String(value))) return key;
+          return '';
+        }).filter(Boolean);
+        const groupMismatchKeys = normalizeContractFieldGroups(contract).flatMap(group => {
+          const present = group.fields.filter(key => Object.prototype.hasOwnProperty.call(properties, key));
+          return present.length > 0 && present.length < group.fields.length
+            ? group.fields.filter(key => !Object.prototype.hasOwnProperty.call(properties, key))
+            : [];
+        });
+        const mismatchKeys = stableUnique([...fieldMismatchKeys, ...groupMismatchKeys]);
+        const matchedCount = propertyKeys.length - unknownKeys.length;
+        return { contract, fields, unknownKeys, missingKeys, mismatchKeys, matchedCount };
+      });
+      if (requestedNamespace || requestedContractId) {
+        selectedContract = candidates.find(candidate => (
+          (!requestedNamespace || text(candidate.contract.namespace) === requestedNamespace)
+          && (!requestedContractId || text(candidate.contract.contractId) === requestedContractId)
+        )) || null;
+        if (!selectedContract) {
+          const requested = requestedContractId || requestedNamespace;
+          addIssue(issues, 'error', 'payload-contract-unknown', 'wireContract', `未找到指定的 Wire Contract：${requested}`);
+          return { ...finalizeIssues(issues), event: eventResult, properties: cloneValue(properties), wireContract: null };
+        }
+      }
+      if (!selectedContract && !requestedNamespace && !requestedContractId) {
+        selectedContract = candidates.sort((left, right) => {
+          if (left.unknownKeys.length !== right.unknownKeys.length) return left.unknownKeys.length - right.unknownKeys.length;
+          const leftMismatch = left.mismatchKeys.length + left.missingKeys.length;
+          const rightMismatch = right.mismatchKeys.length + right.missingKeys.length;
+          if (leftMismatch !== rightMismatch) return leftMismatch - rightMismatch;
+          if (left.mismatchKeys.length !== right.mismatchKeys.length) return left.mismatchKeys.length - right.mismatchKeys.length;
+          return right.matchedCount - left.matchedCount;
+        })[0] || null;
+      }
+    }
+    const schema = selectedContract
+      ? new Map(selectedContract.fields.map(contractField => {
+        const key = text(contractField?.nameRaw);
+        const base = businessSchema.get(key);
+        const observedType = normalizeType(contractField?.typeObserved);
+        const required = contractField?.requiredObserved === true
+          ? true
+          : contractField?.requiredObserved === false
+            ? false
+            : base?.raw?.required;
+        const nullable = contractField?.nullableObserved === true
+          ? true
+          : contractField?.nullableObserved === false
+            ? false
+            : base?.raw?.nullable;
+        const canonicalType = observedType.supported ? observedType.canonical : base?.canonical?.type;
+        if (!canonicalType || !CANONICAL_TYPES.includes(canonicalType)) {
+          addIssue(issues, 'error', 'payload-schema-field-type-missing', `wireContract.${text(selectedContract.contract.namespace)}.${key}`, `Wire Contract 字段 ${key} 缺少明确类型`);
+        }
+        return [key, base ? {
+          ...base,
+          raw: { ...base.raw, rawType: text(contractField?.typeObserved) || base.raw.rawType, required, nullable },
+          canonical: { ...base.canonical, type: canonicalType || '', required, nullable }
+        } : {
+          raw: { rawName: key, rawType: text(contractField?.typeObserved), required, nullable, enumValues: [] },
+          canonical: { key, type: canonicalType || '', required, nullable }
+        }];
+      }).filter(([key]) => key))
+      : businessSchema;
     schema.forEach((field, key) => {
       if (field.raw.required === true && !Object.prototype.hasOwnProperty.call(properties, key)) {
         addIssue(issues, 'error', 'payload-required-missing', `properties.${key}`, `缺少必填字段 ${key}`);
       }
     });
+    if (selectedContract) {
+      normalizeContractFieldGroups(selectedContract.contract).forEach(group => {
+        const present = group.fields.filter(key => Object.prototype.hasOwnProperty.call(properties, key));
+        if (present.length > 0 && present.length < group.fields.length) {
+          const missing = group.fields.filter(key => !Object.prototype.hasOwnProperty.call(properties, key));
+          addIssue(
+            issues,
+            'error',
+            'payload-field-group-incomplete',
+            'properties',
+            group.description || `字段 ${group.fields.join(' / ')} 必须在同一条 payload 中同时发送`,
+            missing.join(' | '),
+            { fields: cloneValue(group.fields), missing: cloneValue(missing) }
+          );
+        }
+      });
+    }
     Object.entries(properties).forEach(([key, value]) => {
-      if (isCommonEnvelopeField(key, config)) {
+      if (isCommonEnvelopeField(key, { ...config, event })) {
         addIssue(issues, 'error', 'payload-common-envelope-conflict', `properties.${key}`, `${key} 属于公共信封，不应手动放入 Properties`);
         return;
       }
@@ -687,7 +835,11 @@
         addIssue(issues, 'error', 'payload-enum-mismatch', `properties.${key}`, `${key} 不在允许值范围内`, field.raw.enumValues.join(' | '));
       }
     });
-    return { ...finalizeIssues(issues), event: eventResult, properties: cloneValue(properties) };
+    const wireContract = selectedContract ? {
+      namespace: text(selectedContract.contract.namespace),
+      contractId: text(selectedContract.contract.contractId)
+    } : null;
+    return { ...finalizeIssues(issues), event: eventResult, properties: cloneValue(properties), wireContract };
   }
 
   function addResultIssue(result, issue) {

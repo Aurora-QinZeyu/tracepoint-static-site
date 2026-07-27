@@ -5,12 +5,12 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function createPrdPasteParser() {
   const ACTION_PATTERN = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
   const HEADER_ALIASES = {
-    label: new Set(['埋点记录事件', '埋点事件', '记录事件', '事件名称']),
+    label: new Set(['埋点记录事件', '埋点事件', '记录事件', '事件名称', '埋点名称']),
     action: new Set(['action', '事件action', '埋点action']),
     businessDomain: new Set(['业务域', '一级业务域', 'businessdomain', 'domain']),
     module: new Set(['业务模块', '二级业务模块', 'module']),
     key: new Set(['额外的key', '额外key', '参数key', '属性key', 'key']),
-    description: new Set(['参数说明', '参数描述', '属性说明', '说明']),
+    description: new Set(['参数说明', '参数描述', '属性说明', '说明', '埋点口径']),
     trigger: new Set(['触发时机', '上报时机', '触发条件', 'trigger']),
     position: new Set(['页面位置', '埋点位置', '上报位置', 'position', 'location']),
     type: new Set(['参数类型', '属性类型', '数据类型', 'type']),
@@ -58,6 +58,15 @@ true`;
     ['事件名称', 'action', '业务域', '业务模块', '触发时机', '页面位置', '参数 key', '参数类型', '是否必填', '是否可空', '枚举值', '示例值', '参数说明', '敏感级别', '负责人', '变更类型', '版本', '上报端'].join('\t'),
     ['滤镜点击', 'app_click', '内容', '首页推荐', '用户点击首页滤镜卡片时', 'discover / 首页瀑布流', 'location1', 'string', '是', '否', 'discover | search | profile', 'discover', '一级入口位置', 'P0', '产品负责人', '新增字段', '1.0.0', 'Web / App'].join('\t'),
     ['', '', '', '', '', '', 'feed_hot_filter', 'boolean', '是', '否', '', 'true', '是否点击热门滤镜', 'P0', '', '', '', ''].join('\t')
+  ].join('\n');
+
+  const productDemandExampleText = [
+    ['埋点名称', '埋点口径'].join('\t'),
+    ['首页收藏列表页面曝光', '用户进入首页收藏列表页面时上报，并记录入口来源和当前收藏数量'].join('\t'),
+    ['（角色封面）收藏功能点击', '点击收藏按钮，同时上报角色ID、收藏/取消收藏、触发场景（Explore、Favorites）'].join('\t'),
+    ['角色封面曝光', '角色封面进入可视区域时上报，同时上报角色ID和触发场景（Explore、Favorites）'].join('\t'),
+    ['Feedback点击提交按钮', '用户提交消息反馈时上报，同时上报角色ID、会话ID、MessageID和是否成功'].join('\t'),
+    ['生图按钮点击', '用户点击消息生图按钮时上报，同时上报角色ID、会话ID、MessageID和是否成功'].join('\t')
   ].join('\n');
 
   function normalizeText(value) {
@@ -243,6 +252,20 @@ true`;
 
   function parseTable(text, issues) {
     const rows = parseTsvRows(text);
+    const demandHeaderIndex = rows.findIndex(row => {
+      const mapped = mapHeaders(row);
+      return mapped.label !== undefined && mapped.description !== undefined && mapped.action === undefined && mapped.key === undefined;
+    });
+    if (demandHeaderIndex >= 0) {
+      const demandHeaders = mapHeaders(rows[demandHeaderIndex]);
+      const events = rows.slice(demandHeaderIndex + 1).reduce((result, row) => {
+        const label = row[demandHeaders.label] || '';
+        const description = row[demandHeaders.description] || '';
+        if (label || description) result.push(createEvent(label, '', { trigger: description, productDemand: true }));
+        return result;
+      }, []);
+      return { events, schema: 'product-demand-v0', headerMap: demandHeaders };
+    }
     const headerIndex = rows.findIndex(row => getHeaderMap(row));
     const headerMap = headerIndex >= 0 ? getHeaderMap(rows[headerIndex]) : null;
     const partialHeaderIndex = rows.findIndex(row => {
@@ -379,6 +402,17 @@ true`;
     return events;
   }
 
+  function parseNaturalDemand(text) {
+    const lines = text.split('\n').map(normalizeCell).filter(Boolean);
+    if (!lines.length || lines.length > 6) return null;
+    if (lines.some(line => getHeaderType(line) || isActionToken(line))) return null;
+    if (!lines.some(looksLikeNaturalLabel)) return null;
+
+    const label = lines[0];
+    const trigger = lines.length > 1 ? lines.slice(1).join('；') : label;
+    return [createEvent(label, '', { trigger })];
+  }
+
   function parse(text) {
     const normalized = normalizeText(text);
     if (!normalized.trim()) {
@@ -392,22 +426,23 @@ true`;
     }
 
     const issues = [];
-    const sourceFormat = normalized.includes('\t') ? 'tsv' : 'vertical';
+    const naturalDemand = normalized.includes('\t') ? null : parseNaturalDemand(normalized);
+    const sourceFormat = normalized.includes('\t') ? 'tsv' : naturalDemand ? 'natural-demand' : 'vertical';
     const tableResult = sourceFormat === 'tsv' ? parseTable(normalized, issues) : null;
-    const parsedEvents = tableResult ? tableResult.events : parseVertical(normalized, issues);
-    const schema = tableResult?.schema || 'legacy-v0';
+    const parsedEvents = tableResult ? tableResult.events : naturalDemand || parseVertical(normalized, issues);
+    const schema = tableResult?.schema || (naturalDemand ? 'product-demand-v0' : 'legacy-v0');
     const events = mergeEvents(parsedEvents, issues);
     events.forEach((event, index) => {
       const location = `第 ${index + 1} 个事件`;
       if (!event.label) addIssue(issues, 'missing-label', '事件缺少“埋点记录事件”', location);
-      if (!event.action) addIssue(issues, 'missing-action', `${event.label || '当前事件'} 缺少 action`, location);
+      if (!event.action && schema !== 'product-demand-v0') addIssue(issues, 'missing-action', `${event.label || '当前事件'} 缺少 action`, location);
       if (event.action && !isActionToken(event.action)) {
         addIssue(issues, 'invalid-action', `${event.action} 不符合 snake_case 命名`, location);
       }
     });
     const actions = new Set(events.map(event => event.action).filter(Boolean)).size;
     const params = events.reduce((sum, event) => sum + event.params.length, 0);
-    const completeEvents = events.filter(event => event.label && event.action).length;
+    const completeEvents = events.filter(event => event.label && (event.action || schema === 'product-demand-v0')).length;
 
     return {
       events,
@@ -418,5 +453,5 @@ true`;
     };
   }
 
-  return { ACTION_PATTERN, exampleText, standardExampleText, parse };
+  return { ACTION_PATTERN, exampleText, standardExampleText, productDemandExampleText, parse };
 });
