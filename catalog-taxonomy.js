@@ -121,7 +121,7 @@
       'continuous_bonus_popup_button_click'
     ],
     '支付与订单': [
-      'pay_method_option_popup', 'pay_result', 'seven_free_trail_pay_result',
+      'payment', 'pay_method_option_popup', 'pay_result', 'seven_free_trail_pay_result',
       'cross_platform_purchase_error', 'google_play_popup_close_manually',
       'google_play_query_failure', 'google_play_subscription_failure',
       'google_play_subscription_upgrade_failure'

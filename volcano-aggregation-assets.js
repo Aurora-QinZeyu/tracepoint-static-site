@@ -130,4 +130,29 @@
       }
     }
   ]);
+
+  root.VolcanoMetricDefinitions = Object.freeze([
+    {
+      id: 'new-returning-user-subscription-rate',
+      title: '新老用户订阅率',
+      image: {
+        src: assetPath('definitions/new-returning-user-subscription-rate.png'),
+        alt: '火山分析新老用户订阅率指标配置截图',
+        width: 1860,
+        height: 1174
+      },
+      source: '用户提供的火山分析配置截图'
+    },
+    {
+      id: 'download-open-rate',
+      title: '下载/打开',
+      image: {
+        src: assetPath('definitions/download-open-rate.png'),
+        alt: '火山分析下载打开指标中打开事件的配置截图',
+        width: 944,
+        height: 190
+      },
+      source: '计算公式：下载去重人数 ÷ 打开去重人数。打开口径已确认：userpath 按 uniqueId 去重计数（COUNT DISTINCT）；下载事件与筛选条件待补充。'
+    }
+  ]);
 })(typeof globalThis !== 'undefined' ? globalThis : window);

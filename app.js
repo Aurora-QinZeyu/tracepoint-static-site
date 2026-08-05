@@ -7,6 +7,95 @@ const GENERATE_ABILITY_MEANINGS={
 const LOGIN_POPUP_LOCATION_MEANINGS={
   like_click:'用户点赞时触发登录',postcard_click:'用户点击作品卡片时触发登录',videocard_click:'用户点击视频或视频滤镜卡片时触发登录',create_click:'用户开始生成或创作时触发登录',post_download_click:'用户下载作品时触发登录',image_download_click:'用户下载图片时触发登录',search_click:'用户进入搜索时触发登录',profile_click:'用户进入个人主页或创作者资料时触发登录',post_list_view:'用户进入作品列表时触发登录',creator_list_view:'用户进入创作者或 App 列表时触发登录',app_landing_page:'用户在 App 落地页触发登录',checkin_now:'用户点击立即签到时触发登录',topic_create_click:'用户创建话题内容时触发登录；当前调用已被注释，枚举仍保留',follow_button_click:'用户点击关注时触发登录',api_page:'用户在 API 页面触发登录',custom_upload_click:'用户在换脸场景点击自定义上传时触发登录',message_click:'用户进入消息功能时触发登录',none:'没有可识别的登录触发入口'
 };
+
+function initPlatformAccountMenu(){
+  const button=document.getElementById('accountMenuButton');
+  const dialog=document.getElementById('accountDialog');
+  if(!button||!dialog)return;
+  const form=document.getElementById('accountForm');
+  const loginFields=document.getElementById('accountLoginFields');
+  const signedIn=document.getElementById('accountSignedIn');
+  const signIn=document.getElementById('accountSignIn');
+  const signOut=document.getElementById('accountSignOut');
+  const username=document.getElementById('accountUsername');
+  const password=document.getElementById('accountPassword');
+  const feedback=document.getElementById('accountFeedback');
+  let member=null;
+  const close=()=>{password.value='';typeof dialog.close==='function'?dialog.close():dialog.removeAttribute('open')};
+  const roleLabel=role=>role==='admin'?'管理员 · 可管理全部内容':'使用者 · 可提交需求和问题';
+  const render=()=>{
+    const authenticated=Boolean(member);
+    const displayName=String(member?.displayName||'团队成员');
+    const initial=authenticated?(displayName.trim().charAt(0)||'账'):'登';
+    document.getElementById('accountAvatar').textContent=initial;
+    document.getElementById('accountDisplayName').textContent=authenticated?displayName:'登录';
+    document.getElementById('accountRoleLabel').textContent=authenticated?roleLabel(member.role):'团队账号';
+    document.getElementById('accountDialogAvatar').textContent=initial;
+    document.getElementById('accountDialogName').textContent=displayName;
+    document.getElementById('accountDialogRole').textContent=authenticated?roleLabel(member.role):'';
+    button.setAttribute('aria-label',authenticated?`当前账号：${displayName}，打开账号设置`:'登录团队账号');
+    loginFields.hidden=authenticated;
+    signedIn.hidden=!authenticated;
+    signIn.hidden=authenticated;
+    signOut.hidden=!authenticated;
+    document.getElementById('accountDialogTitle').textContent=authenticated?'账号设置':'登录 Tracepoint';
+    globalThis.TracepointPlatformMember=member;
+    document.dispatchEvent(new CustomEvent('tracepoint:member',{detail:{member}}));
+  };
+  const loadMember=async()=>{
+    try{
+      const session=await globalThis.TracepointAuth?.getSession?.();
+      if(!session){member=null;render();return}
+      const response=await globalThis.TracepointGovernance?.currentMember?.();
+      member=response?.user||null;
+    }catch(_error){member=null}
+    render();
+  };
+  button.addEventListener('click',()=>{
+    feedback.textContent=member?'如需更换账号，请先退出当前账号。':'管理员和使用者都从这里登录。';
+    feedback.classList.remove('is-error','is-success');
+    typeof dialog.showModal==='function'?dialog.showModal():dialog.setAttribute('open','');
+    requestAnimationFrame(()=>member?signOut.focus():username.focus());
+  });
+  document.getElementById('closeAccountDialog').addEventListener('click',close);
+  document.getElementById('cancelAccountDialog').addEventListener('click',close);
+  dialog.addEventListener('cancel',event=>{event.preventDefault();close()});
+  document.addEventListener('tracepoint:auth-expired',()=>{member=null;render();feedback.textContent='登录已失效，请重新登录。';feedback.classList.add('is-error')});
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();
+    const account=username.value.trim();
+    if(!account||!password.value){feedback.textContent='请填写团队账号和登录密码。';feedback.classList.add('is-error');return}
+    signIn.disabled=true;
+    feedback.textContent='正在登录…';
+    feedback.classList.remove('is-error','is-success');
+    try{
+      await globalThis.TracepointAuth.signInWithPassword(account,password.value);
+      const response=await globalThis.TracepointGovernance.currentMember();
+      member=response?.user||{displayName:account,role:'member'};
+      render();
+      feedback.textContent='登录成功。';
+      feedback.classList.add('is-success');
+      username.value='';
+    }catch(error){feedback.textContent=error?.message||'登录失败';feedback.classList.add('is-error')}
+    finally{password.value='';signIn.disabled=false}
+  });
+  signOut.addEventListener('click',async()=>{
+    signOut.disabled=true;
+    feedback.textContent='正在退出…';
+    try{
+      await globalThis.TracepointAuth.signOut();
+      member=null;
+      render();
+      feedback.textContent='已退出，可以登录其他账号。';
+      feedback.classList.add('is-success');
+    }catch(error){feedback.textContent=error?.message||'退出失败';feedback.classList.add('is-error')}
+    finally{signOut.disabled=false}
+  });
+  render();
+  loadMember();
+}
+
+initPlatformAccountMenu();
 const GENERATE_ENTRY_POINT_MEANINGS={
   detail:'详情页',direct:'瀑布流直接入口','half-direct':'半屏详情页',comment:'评论区入口',direct_generate:'直接生成入口',build:'Build 创作页'
 };
@@ -1846,6 +1935,7 @@ const VERIFIED_WIRE_CONTRACT_CORRECTIONS=Object.freeze({
 
 const seedEvents=[
  {name:'more_popup_show',description:'更多弹窗曝光',theme:'behaviour',group:'废弃埋点',domain:'更多',status:'已停用',rule:'更多弹窗曝光时上报',source:'主流程移出 · 人工废弃资产',fields:[]},
+ {name:'payment',description:'支付成功订单数',theme:'commercial',group:'商业化',domain:'支付成功',status:'已接入后端',rule:'后端确认支付成功后上报；用于表示支付成功订单数，统计时按 order_id 去重',source:'后端 payment 埋点字段说明截图 · 2026-08-04',trackingSource:'backend',fields:[['product','string','包体名称，矩阵包名全小写，例如 popdoll'],['order_id','string','订单 ID；用于去重统计支付成功订单数'],['state','string','支付状态，固定为 paid'],['channel_product_id','string','商品 ID，例如 standard、cp_in_30'],['channel_price_id','string','价格 ID，用于价格测试'],['bill_reason','string','下单原因：create、cycle、restart、cycle_at_end_down'],['country','string','用户国家，例如 US、JP、CN'],['payment_id','string','支付单 ID'],['subscription_id','string','订阅 ID；订阅场景必填，非订阅场景为 null'],['channel','string','支付渠道，固定为 google']],fieldMeta:{product:{source:'后端字段说明',type:'string',description:'包体名称，矩阵包名全小写',allowedValues:['popdoll']},order_id:{source:'后端字段说明',type:'string',description:'Payment.orderId；用于去重统计支付成功订单数'},state:{source:'后端字段说明',type:'string',required:true,nullable:false,description:'Payment.state；固定支付成功状态',allowedValues:['paid'],example:'paid'},channel_product_id:{source:'后端字段说明',type:'string',description:'Payment.channelProductId',allowedValues:['standard','cp_in_30']},channel_price_id:{source:'后端字段说明',type:'string',description:'Payment.channelPriceId；用于价格测试'},bill_reason:{source:'后端字段说明',type:'string',description:'Payment.billReason',allowedValues:['create','cycle','restart','cycle_at_end_down']},country:{source:'后端字段说明',type:'string',description:'UserClient.getUserInfo().countryName',allowedValues:['US','JP','CN']},payment_id:{source:'后端字段说明',type:'string',description:'Payment.id'},subscription_id:{source:'后端字段说明',type:'string',nullable:true,description:'Subscription.id；订阅场景必填，非订阅场景为 null'},channel:{source:'后端字段说明',type:'string',required:true,nullable:false,description:'固定支付渠道',allowedValues:['google'],example:'google'}},governanceMetadata:{lifecycle:'active',lifecycleSource:'backend_inventory_screenshot',contractNote:'指标含义为支付成功订单数，按 order_id 去重；除 state、channel 及 subscription_id 的条件约束外，字段必填性与可空性待后端契约确认'}},
  {name:'userpath',description:'页面加载成功',theme:'behaviour',group:'主流程',domain:'登录注册',status:'已上线',rule:'站内所有页面加载成功时触发',source:'⭐️【A1】已上线',fields:[['isnew','bool','是否新用户'],['gpu','string','设备芯片信息'],['preurl','string','本次访问的上一个页面']]},
  {name:'login_button_click',description:'点击登录按钮',theme:'behaviour',group:'用户与账号',domain:'登录注册',status:'已上线',rule:'点击 Login 按钮时触发',source:'⭐️【A1】已上线',fields:[['source','string','登录入口'],['plan','string','本地存储套餐'],['originUrl','string','来源地址'],['firstenterurl','string','24小时内首次访问地址']]},
  {name:'registration_pop_up',description:'注册弹窗',theme:'behaviour',group:'用户与账号',domain:'登录注册',status:'已上线',rule:'注册弹窗关闭时触发',source:'⭐️【A1】已上线',fields:[['isregister','string','close / register'],['location','string','top / rate_button / optimize / pic_like']]},
@@ -1902,6 +1992,8 @@ const androidNativeEvents=[
   {name:'push_permission_popup_action',description:'Android 通知权限弹窗结果',theme:'behaviour',group:'Push',domain:'权限与触达',status:'已接入 Android',rule:'Android 13+ 系统通知权限弹窗返回结果时上报',source:'Android 项目内埋点清单.md',trackingSource:'android',commonContractId:ANDROID_COMMON_CONTRACT.id,fields:[['action_type','string','通知权限结果：allow 允许、deny 拒绝、close 结果数组为空的兜底分支']]}
 ];
 const volcanoAggregationAssets=globalThis.VolcanoAggregationAssets||[];
+const volcanoMetricDefinitions=globalThis.VolcanoMetricDefinitions||[];
+const metricDefinitions=globalThis.MetricDefinitions||[];
 const events=[
   ...mainFlowEvents,
   ...volcanoAggregationAssets,
@@ -2053,7 +2145,7 @@ function refreshGovernanceAssessments(){
 }
 refreshGovernanceAssessments();
 const IN_PROGRESS_STATUSES=new Set(['开发中','待开发','方案中','待确认']);
-const BACKEND_TRACKING_EVENTS=new Set(['subscribe_cancel']);
+const BACKEND_TRACKING_EVENTS=new Set(['subscribe_cancel','payment']);
 const TRACKING_SOURCE_LABELS={frontend:'前端',backend:'后端',android:'Android 端',bigdata:'火山聚合'};
 
 function getTrackingSourceEvidence(event,assetClassification){
@@ -2126,8 +2218,12 @@ function isApprovedSessionAsset(event){
   return metadata.sessionAssetState==='check_approved'&&metadata.sessionAssetScope==='browser_prototype';
 }
 
+function isConfirmedBackendAsset(event){
+  return event?.trackingSource==='backend'&&event?.governanceMetadata?.lifecycle==='active';
+}
+
 function isProtectedAssetEvent(event){
-  return mainFlowEvents.includes(event)||volcanoAggregationAssets.includes(event)||androidNativeEvents.includes(event)||event?.name==='subscribe_cancel'||isApprovedSessionAsset(event);
+  return mainFlowEvents.includes(event)||volcanoAggregationAssets.includes(event)||androidNativeEvents.includes(event)||['subscribe_cancel','payment'].includes(event?.name)||isConfirmedBackendAsset(event)||isApprovedSessionAsset(event);
 }
 
 function getActiveAssetEvents(){
@@ -2298,7 +2394,18 @@ document.addEventListener('keydown',event=>{
 });
 render=function(){};
 function openDrawerV2(e){document.getElementById('drawerAction').textContent=e.name;const similar=events.filter(x=>x!==e&&(x.theme===e.theme||x.group===e.group)).slice(0,3);document.getElementById('drawerContent').innerHTML=`<div class="detail-summary"><div><span>事件说明</span><strong>${e.description}</strong></div><div><span>Theme</span><strong>${e.theme}</strong></div><div><span>一级业务域</span><strong>${e.group}</strong></div><div><span>二级业务模块</span><strong>${e.domain}</strong></div></div><section class="drawer-section"><h3>上报时机</h3><p>${e.rule}</p></section><section class="drawer-section"><div class="section-line"><h3>属性字段</h3><span>${e.fields.length} 个</span></div>${e.fields.length?`<div class="field-table">${e.fields.map(f=>`<div><code>${f[0]}</code><span>${f[1]}</span><p>${f[2]}</p></div>`).join('')}</div>`:'<p class="empty">暂无额外属性</p>'}</section><section class="drawer-section"><div class="section-line"><h3>相似事件</h3><span>按一级业务域与 Theme 匹配</span></div><div class="similar-list">${similar.map(x=>`<button data-similar="${x.name}"><strong>${x.name}</strong><span>${x.group} · ${x.domain} · ${x.description}</span></button>`).join('')}</div></section><div class="source-note">来源：${e.source}</div>`;document.querySelectorAll('[data-similar]').forEach(b=>b.onclick=()=>openDrawerV2(events.find(x=>x.name===b.dataset.similar)));document.getElementById('detailDrawer').classList.add('show');document.getElementById('drawerBackdrop').classList.add('show')}
-document.querySelectorAll('.nav-item').forEach(b=>b.onclick=()=>{const label=b.querySelector('.nav-label')?.textContent.trim()||b.getAttribute('aria-label')||'';document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('page-title').textContent=label;document.getElementById('pageEyebrow').textContent=label});document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>{const active=x===b;x.classList.toggle('active',active);x.setAttribute('aria-pressed',String(active))});render()});['search','evidence'].forEach(id=>document.getElementById(id)?.addEventListener('input',render));
+document.querySelectorAll('.nav-item').forEach(b=>b.onclick=()=>{
+  const label=b.querySelector('.nav-label')?.textContent.trim()||b.getAttribute('aria-label')||'';
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x===b));
+  document.querySelectorAll('[data-mobile-view]').forEach(x=>{
+    const active=x.dataset.mobileView===b.dataset.view;
+    x.classList.toggle('active',active);
+    if(active)x.setAttribute('aria-current','page');
+    else x.removeAttribute('aria-current');
+  });
+  document.getElementById('page-title').textContent=label;
+  document.getElementById('pageEyebrow').textContent=label;
+});document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>{const active=x===b;x.classList.toggle('active',active);x.setAttribute('aria-pressed',String(active))});render()});['search','evidence'].forEach(id=>document.getElementById(id)?.addEventListener('input',render));
 const modal=document.getElementById('modal');document.getElementById('addBtn').onclick=()=>document.querySelector('[data-view="intake"]')?.click();document.getElementById('closeModal').onclick=()=>modal.classList.remove('show');document.getElementById('cancelModal').onclick=()=>modal.classList.remove('show');document.getElementById('saveEvent').onclick=()=>{modal.classList.remove('show');document.querySelector('[data-view="intake"]')?.click();showToast('请在需求与设计中补齐 Tracking Contract v1 后提交方案评审')};document.getElementById('exportBtn').onclick=()=>showToast('报告已导出');document.querySelector('.range-control').onclick=()=>showToast('当前统计范围：近 7 日');document.getElementById('allActivity').onclick=()=>showToast('已展开全部动态');function showToast(t){const el=document.getElementById('toast');el.textContent=t;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200)}
 
 const standardSections={assist:document.querySelector('.design-assist'),metrics:document.querySelector('.metric-grid'),toolbar:document.querySelector('.catalog-head-status'),table:document.querySelector('.table-panel'),bottom:document.querySelector('.bottom-grid')};
@@ -2306,9 +2413,12 @@ function buildCatalogSubtitle(){
   const repository=frontendTrackingManifest?.repository;
   const revision=repository?[repository.branch,repository.commitShort].filter(Boolean).join(' · '):'';
   const codeSummary=assetStats.code?`已对齐前端 ${assetStats.code} 个 action${revision?`（${revision}）`:''}`:'尚未载入前端代码清单';
-  return `共 ${assetStats.total} 个事件，其中 ${assetStats.main} 个主流程事件；${codeSummary}，包含 ${assetStats.fields} 个事件独有字段定义。`;
+  const typedTotal=frontendTrackingManifest?.typedDefinitions?.total||frontendTrackingManifest?.summary?.makeTrackerDefinitions;
+  const conversionTotal=frontendTrackingManifest?.externalConversionTracking?.events?.length||3;
+  const definitionSummary=typedTotal?`六通道 ${typedTotal} 个 typed 定义${conversionTotal?`；另有 ${conversionTotal} 个独立广告 / 转化事件`:''}`:'';
+  return `共 ${assetStats.total} 个事件，其中 ${assetStats.main} 个主流程事件；${codeSummary}${definitionSummary?`，${definitionSummary}`:''}，包含 ${assetStats.fields} 个事件独有字段定义。`;
 }
-const viewCopy={intake:['产品需求','产品说明想观测的用户行为，平台对照已有埋点并提示需要补充的字段。'],review:['埋点 Check',''],debug:['研发上报',''],acceptance:['验收上线',''],issues:['问题上报','登记漏报、错报、字段异常、聚合口径反馈和停用申请。'],catalog:['埋点资产',buildCatalogSubtitle()],deprecated:['废弃埋点','集中查看仅有定义或暂无代码证据的埋点；这是静态扫描候选，不代表生产环境已确认废弃。'],locations:['采集追溯','按前端、后端、火山聚合和 Android 汇总全库采集归属。'],commonFields:['公共字段','统一维护所有事件可复用的用户、设备、渠道和业务上下文字段。']};
+const viewCopy={aiAssistant:['AI 埋点助手','描述想实现的产品操作，生成可复用、新建或补充字段的埋点建议。'],intake:['产品需求','产品说明想观测的用户行为，平台对照已有埋点并提示需要补充的字段。'],review:['埋点 Check',''],debug:['研发上报',''],acceptance:['验收上线',''],issues:['问题上报','登记漏报、错报、字段异常、聚合口径反馈和停用申请。'],catalog:['埋点资产',buildCatalogSubtitle()],deprecated:['废弃埋点','集中查看仅有定义或暂无代码证据的埋点；这是静态扫描候选，不代表生产环境已确认废弃。'],locations:['采集追溯','按前端、后端、火山聚合和 Android 汇总全库采集归属。'],commonFields:['公共字段','统一维护所有事件可复用的用户、设备、渠道和业务上下文字段。'],definitions:['口径整理','']};
 function refreshAssetStats(){
   refreshGovernanceAssessments();
   Object.assign(assetStats,calculateAssetStats());
@@ -2316,7 +2426,12 @@ function refreshAssetStats(){
   viewCopy.catalog[1]=buildCatalogSubtitle();
 }
 function switchView(view){const special=document.getElementById('specialView'),copy=viewCopy[view]||viewCopy.requirements,subtitle=document.getElementById('page-subtitle');document.getElementById('page-title').textContent=copy[0];subtitle.textContent=copy[1];subtitle.hidden=!copy[1];Object.values(standardSections).forEach(el=>el.classList.add('view-hidden'));special.classList.remove('show');special.innerHTML='';if(view==='requirements'){standardSections.assist.classList.remove('view-hidden');standardSections.toolbar.classList.remove('view-hidden');standardSections.table.classList.remove('view-hidden')}else if(view==='design'){special.classList.add('show');special.innerHTML=`<div class="tracking-builder"><section class="builder-form"><div class="builder-head"><div><h2>定义统计目标</h2><p>从产品问题生成一份可交付的埋点方案</p></div><span>草稿</span></div><div class="builder-fields"><label class="wide">要回答的问题<textarea placeholder="例如：用户点击生成后，在哪一步流失最多？"></textarea></label><label>产品端<select><option>PixPop Web</option><option>PixPop App</option></select></label><label>业务模块<select><option>主流程 / 生成</option><option>用户与账号</option><option>商业化</option></select></label><label>页面位置<input value="生成页 / 底部操作区" /></label><label>交互动作<select><option>点击</option><option>曝光</option><option>提交</option><option>完成</option></select></label></div><button class="btn primary builder-generate">生成埋点方案</button></section><aside class="builder-preview"><div class="builder-head"><div><h2>方案预览</h2><p>保存前完成命名和字段检查</p></div><span class="preview-state">待生成</span></div><div class="preview-block"><small>事件名称</small><code>generate_button_click</code></div><div class="preview-block"><small>触发时机</small><p>用户点击生成按钮且请求成功发送时</p></div><div class="preview-block"><small>建议属性</small><div class="property-tags"><span>app_id</span><span>template_id</span><span>entry_point</span></div></div><div class="preview-checks"><p><b>✓</b> 命名符合规范</p><p><b>✓</b> 未发现重复事件</p><p><b>·</b> 等待绑定产品位置</p></div></aside></div>`}else if(view==='catalog'){standardSections.assist.classList.remove('view-hidden');standardSections.toolbar.classList.remove('view-hidden');standardSections.table.classList.remove('view-hidden')}else if(view==='check'){special.classList.add('show');special.innerHTML=`<div class="view-stats"><div><span>待处理</span><strong>12</strong><small>需要负责人确认</small></div><div><span>命名不规范</span><strong>5</strong><small>action 不符合规范</small></div><div><span>字段缺失</span><strong>4</strong><small>缺少类型或说明</small></div><div><span>疑似重复</span><strong>3</strong><small>相似度超过 85%</small></div></div><div class="issue-panel"><div class="view-panel-head"><div><h2>检查结果</h2><p>按风险优先级排序</p></div><button class="btn secondary">重新检查</button></div><div class="issue-row"><span class="severity high">高</span><div><strong>pricing_premium_subscibe_click</strong><p>事件名疑似拼写错误：subscibe → subscribe</p></div><em>命名规范</em><button>处理</button></div><div class="issue-row"><span class="severity medium">中</span><div><strong>remix_begin_click</strong><p>同时存在 app_id 与 appid，字段口径不一致</p></div><em>字段一致性</em><button>处理</button></div><div class="issue-row"><span class="severity low">低</span><div><strong>remix_guide_close_click</strong><p>已停用事件近 30 日仍存在少量上报</p></div><em>生命周期</em><button>查看</button></div></div>`}else if(view==='locations'){special.classList.add('show');special.innerHTML=`<div class="location-layout"><aside class="location-tree"><h2>产品位置</h2><button class="tree-active">▾ PixPop Web <b>8</b></button><button>　├ 首页 <b>2</b></button><button>　├ 登录注册 <b>3</b></button><button>　├ 定价页 <b>3</b></button><button>▸ PixPop App <b>5</b></button></aside><div class="location-main"><div class="view-panel-head"><div><h2>PixPop Web / 登录注册</h2><p>3 个事件 · 最近更新 2026-07-15</p></div><button class="btn primary">＋ 绑定位置</button></div><div class="location-card"><span class="position-index">01</span><div><strong>LoginButton</strong><p>首页 / Header / 登录按钮</p><code>login_button_click</code></div><em>点击</em></div><div class="location-card"><span class="position-index">02</span><div><strong>RegistrationModal</strong><p>全局 / 注册弹窗 / 关闭</p><code>registration_pop_up</code></div><em>关闭</em></div><div class="location-card"><span class="position-index">03</span><div><strong>PageContainer</strong><p>全局页面 / 加载完成</p><code>userpath</code></div><em>曝光</em></div></div></div>`}else{special.classList.add('show');special.innerHTML=`<div class="empty-view"><strong>${copy[0]}</strong><p>${copy[1]}</p><button class="btn primary">开始配置</button></div>`}}
-document.querySelectorAll('.nav-item').forEach(item=>item.addEventListener('click',()=>switchView(item.dataset.view)));function renderCommonFields(){const special=document.getElementById('specialView');special.classList.add('show');special.innerHTML=`<div class="common-fields"><div class="view-panel-head"><div><h2>公共字段库</h2><p>所有埋点默认复用的标准属性</p></div><button class="btn primary">＋ 新增字段</button></div><div class="common-field-head"><span>字段名称</span><span>类型</span><span>适用范围</span><span>覆盖率</span><span>维护人</span><span></span></div><div class="common-field-row"><div><code>user_id</code><small>用户唯一标识</small></div><span>String</span><span>全部事件</span><strong>100%</strong><span>数据平台</span><button>›</button></div><div class="common-field-row"><div><code>platform</code><small>Web / iOS / Android</small></div><span>String</span><span>全部事件</span><strong>99.8%</strong><span>客户端</span><button>›</button></div><div class="common-field-row"><div><code>app_version</code><small>客户端版本号</small></div><span>String</span><span>App 事件</span><strong>98.6%</strong><span>客户端</span><button>›</button></div><div class="common-field-row"><div><code>channel_code</code><small>投放与包体渠道</small></div><span>String</span><span>增长事件</span><strong>96.2%</strong><span>增长数据</span><button>›</button></div><div class="common-field-row"><div><code>session_id</code><small>访问会话标识</small></div><span>String</span><span>行为事件</span><strong>94.7%</strong><span>数据平台</span><button>›</button></div></div>`}document.querySelector('[data-view="commonFields"]').addEventListener('click',renderCommonFields);switchView('catalog');
+document.querySelectorAll('.nav-item').forEach(item=>item.addEventListener('click',()=>switchView(item.dataset.view)));
+document.querySelectorAll('[data-mobile-view]').forEach(button=>button.addEventListener('click',()=>{
+  document.querySelector(`.nav-item[data-view="${button.dataset.mobileView}"]`)?.click();
+  window.scrollTo({top:0,behavior:'auto'});
+}));
+function renderCommonFields(){const special=document.getElementById('specialView');special.classList.add('show');special.innerHTML=`<div class="common-fields"><div class="view-panel-head"><div><h2>公共字段库</h2><p>所有埋点默认复用的标准属性</p></div><button class="btn primary">＋ 新增字段</button></div><div class="common-field-head"><span>字段名称</span><span>类型</span><span>适用范围</span><span>覆盖率</span><span>维护人</span><span></span></div><div class="common-field-row"><div><code>user_id</code><small>用户唯一标识</small></div><span>String</span><span>全部事件</span><strong>100%</strong><span>数据平台</span><button>›</button></div><div class="common-field-row"><div><code>platform</code><small>Web / iOS / Android</small></div><span>String</span><span>全部事件</span><strong>99.8%</strong><span>客户端</span><button>›</button></div><div class="common-field-row"><div><code>app_version</code><small>客户端版本号</small></div><span>String</span><span>App 事件</span><strong>98.6%</strong><span>客户端</span><button>›</button></div><div class="common-field-row"><div><code>channel_code</code><small>投放与包体渠道</small></div><span>String</span><span>增长事件</span><strong>96.2%</strong><span>增长数据</span><button>›</button></div><div class="common-field-row"><div><code>session_id</code><small>访问会话标识</small></div><span>String</span><span>行为事件</span><strong>94.7%</strong><span>数据平台</span><button>›</button></div></div>`}document.querySelector('[data-view="commonFields"]').addEventListener('click',renderCommonFields);switchView('catalog');
 
 const commonFieldsData=[
   {name:'device_type',category:'场景基本信息',scenes:'主站, 主站（老）, 静态页, IOS',timing:'全部都发',example:"APP / MOBILE（h5）/ PC",description:'区分主站项目的 3 个端',inProperties:true},
@@ -2492,6 +2607,39 @@ let importedPrdParserIssues=[];
 let submittedChangePlan=[];
 let intakeMode='paste';
 let analystReviewState={status:'未提交',submittedAt:'',reviewedAt:'',note:''};
+let persistedRequirementId=null;
+async function persistGovernanceRequirement(status='draft'){
+  const client=globalThis.TracepointGovernance;
+  if(!client?.configured||!importedPrdEvents.length)return {persisted:false,reason:'not_configured'};
+  const title=importedPrdEvents[0]?.label||importedPrdEvents[0]?.goal||'埋点需求草稿';
+  try{
+    const result=await client.saveRequirement({
+      id:persistedRequirementId,
+      title,
+      status,
+      payload:{events:importedPrdEvents,validation:importedPrdValidation,parserIssues:importedPrdParserIssues}
+    });
+    persistedRequirementId=result?.requirement?.id||persistedRequirementId;
+    return {persisted:Boolean(persistedRequirementId),requirement:result?.requirement||null};
+  }catch(error){return {persisted:false,reason:error?.message||'持久化失败'}}
+}
+async function persistGovernanceVersions(){
+  const client=globalThis.TracepointGovernance;
+  if(!client?.configured||!persistedRequirementId)return {persisted:false,reason:'not_configured'};
+  const versions=[];
+  for(const event of importedPrdEvents){
+    const changeType=String(event.changeType||'');
+    if(!['keep','alias','dual_write','replace'].includes(changeType))return {persisted:false,reason:`${event.action||'事件'} 尚未选择契约策略`};
+    versions.push(await client.appendVersion({
+      requirementId:persistedRequirementId,
+      rawAction:event.action,
+      version:event.version,
+      changeType,
+      snapshot:event
+    }));
+  }
+  return {persisted:true,versions};
+}
 function addIntakeModeSwitch(activeMode){
   const modes=[
     ['paste','PRD 导入','自动整理复制内容'],
@@ -2512,6 +2660,11 @@ function renderRequirementsDesign(mode=intakeMode){
     renderPrdTableReport();
   }
   addIntakeModeSwitch(intakeMode);
+}
+
+function renderAiAssistant(){
+  intakeMode='direct';
+  renderDirectTrackingDesign();
 }
 
 function getDemandActionResolution(item){
@@ -2582,6 +2735,47 @@ function renderDemandFieldDecisions(fields,options){
   return `<div class="demand-field-table" role="table" aria-label="字段复用依据"><div class="demand-field-row is-head" role="row"><span role="columnheader">处理</span><span role="columnheader">字段 Key</span><span role="columnheader">复用依据</span></div>${rows}</div>`;
 }
 
+function getDemandDesignRecommendation(item){
+  if(item?.aiRecommendation)return item.aiRecommendation;
+  const resolution=getDemandActionResolution(item);
+  const fields=item?.fields||[];
+  const changedFields=fields.filter(field=>field.status!=='existing');
+  const decision=resolution.tier==='review'
+    ?'needs_review'
+    :resolution.tier==='new'
+    ?'create_new'
+    :changedFields.length
+    ?'extend_existing'
+    :'reuse_existing';
+  return {
+    mode:'simulated_local',
+    decision,
+    targetAction:decision==='needs_review'?null:resolution.selectedAction,
+    suggestedFields:fields,
+    reason:item?.evidence||'',
+    warnings:[]
+  };
+}
+
+function renderDemandDecisionSummary(item){
+  const recommendation=getDemandDesignRecommendation(item);
+  const copy={
+    reuse_existing:{label:'复用已有埋点',description:'现有 Action 与所需操作、触发时机和字段口径一致。'},
+    extend_existing:{label:'复用并补充字段',description:'沿用现有 Action，只对缺少的分析维度形成字段提案。'},
+    create_new:{label:'新建埋点提案',description:'未找到足够一致的 Action，新名称与字段均进入待确认草稿。'},
+    needs_review:{label:'需要人工判断',description:'存在相近 Action 或字段冲突，确认候选后才能生成契约。'}
+  }[recommendation.decision]||{label:'需要人工判断',description:'当前建议仍需补充上下文。'};
+  const fields=recommendation.suggestedFields||[];
+  const changedCount=fields.filter(field=>field.status!=='existing').length;
+  const targetAction=recommendation.targetAction||'待选择候选';
+  const evidenceLabel=recommendation.mode==='simulated_local'
+    ?'本地规则模拟'
+    :recommendation.mode==='personal_model_intent'
+    ?'个人 AI 意图 + 本地治理规则'
+    :'模型与资产检索';
+  return `<section class="demand-decision-summary is-${escapeFieldHtml(recommendation.decision||'needs_review')}" aria-label="智能埋点建议结论"><div class="demand-decision-primary"><span>建议结论</span><strong>${copy.label}</strong><p>${escapeFieldHtml(recommendation.reason||copy.description)}</p></div><dl><div><dt>目标 Action</dt><dd><code>${escapeFieldHtml(targetAction)}</code></dd></div><div><dt>字段处理</dt><dd>${fields.length?`${fields.length} 项建议 · ${changedCount} 项需变更`:'沿用公共信封，无独有字段'}</dd></div><div><dt>建议来源</dt><dd>${evidenceLabel}</dd></div></dl></section>`;
+}
+
 function renderDemandRecommendation(item,options){
   options=options||{};
   const resolution=getDemandActionResolution(item);
@@ -2615,13 +2809,13 @@ function renderDemandRecommendation(item,options){
     return `<div class="demand-candidate-row"><div><code>${escapeFieldHtml(action)}</code><strong>${escapeFieldHtml(event.description||event.rule||'埋点资产')}</strong><small>${escapeFieldHtml(explanation)}</small><small class="demand-candidate-fields"${eventFields.length?` title="${escapeFieldHtml(eventFields.join('、'))}"`:''}>${escapeFieldHtml(fieldPreview)}</small></div>${button}</div>`;
   }).join('');
   const noCandidate=resolution.tier==='review'&&!candidateRows?'<div class="demand-candidate-empty">未返回可供选择的相似 Action，本次建议暂不写入契约。</div>':'';
-  return `<article class="demand-recommendation is-${resolution.tier}"><header class="demand-recommendation-head"><div><span class="demand-tier-label">${tierCopy.label}</span><strong>${escapeFieldHtml(item?.inputLabel||'产品需求')}</strong></div><p>${tierCopy.description}</p></header><div class="demand-candidate-list" aria-label="Action 复用候选">${candidateRows}${noCandidate}</div><div class="demand-field-resolution"><h3>字段 Key 复用与新建建议</h3>${renderDemandFieldDecisions(item?.fields||[],{interactive:options.fieldInteractive??options.interactive,choiceMode:options.choiceMode,requestIndex:options.requestIndex})}</div></article>`;
+  return `<article class="demand-recommendation is-${resolution.tier}">${renderDemandDecisionSummary(item)}<header class="demand-recommendation-head"><div><span class="demand-tier-label">${tierCopy.label}</span><strong>${escapeFieldHtml(item?.inputLabel||'产品需求')}</strong></div><p>${tierCopy.description}</p></header><div class="demand-candidate-list" aria-label="Action 复用候选">${candidateRows}${noCandidate}</div><div class="demand-field-resolution"><h3>字段 Key 复用与新建建议</h3>${renderDemandFieldDecisions(item?.fields||[],{interactive:options.fieldInteractive??options.interactive,choiceMode:options.choiceMode,requestIndex:options.requestIndex})}</div></article>`;
 }
 
 function renderDirectTrackingDesign(){
   const special=document.getElementById('specialView');
   special.classList.add('show');
-  special.innerHTML=`<section class="direct-design-panel"><div class="view-panel-head"><div><h2>提交产品埋点需求</h2><p>输入页面、对象和行为，平台优先检索可复用的 Action 和字段 Key</p></div><span class="prototype-badge">产品填写</span></div><div class="direct-design-workspace"><form class="direct-design-form" id="directDesignForm" novalidate><label class="full direct-primary-field">需求描述<textarea id="directLabel" required placeholder="例如：Chatbot 首页收藏列表">Chatbot 首页收藏列表</textarea><small>用业务语言说明页面、对象和行为。</small></label><label class="full direct-primary-field">上报逻辑 / 希望分析的字段<textarea id="directTrigger" required placeholder="例如：进入页面时上报，希望分析入口来源、收藏数量和角色 ID">用户进入 Chatbot 首页收藏列表时上报，希望分析入口来源、当前收藏数量和角色 ID</textarea><small>说明何时上报，以及需要拆分的分析维度。</small></label><details class="direct-contract-details full"><summary><span>补充契约信息</span><small>确认 Action、归属和字段约束</small></summary><div class="direct-contract-grid"><label class="wide">统计目标<textarea id="directGoal" required>了解 Chatbot 首页收藏列表的访问规模和入口分布</textarea></label><label class="wide">Raw Action<input id="directAction" value="" spellcheck="false" /><small class="direct-action-hint">采用右侧候选后带入，也可手动填写</small></label><label>工作线<select id="directDomain"><option>搜推与触达</option><option>商业化</option><option selected>Chatbot</option><option>运营增长</option><option>创作工具</option><option>用户与平台</option></select></label><label>工作模块<input id="directModule" required value="对话入口" /></label><label>页面位置<input id="directPosition" required value="Chatbot / 首页收藏列表" /></label><label>上报端<select id="directPlatform"><option>Web</option><option>iOS</option><option>Android</option><option selected>Web / iOS / Android</option></select></label><label>产品负责人<input id="directOwner" required value="产品负责人" /></label><label>需求版本<input id="directVersion" required value="1.0.0" /></label><label>契约策略<select id="directChangeType"><option value="" selected>待确认</option><option value="keep">keep - 保持 Raw 契约</option><option value="alias">alias - 建立别名</option><option value="dual_write">dual_write - 双写迁移</option><option value="replace">replace - 审批后替换</option></select></label><label>手动补充字段<input id="directFieldKey" value="" spellcheck="false" /></label><label>字段类型<select id="directFieldType"><option>string</option><option>integer</option><option>number</option><option>boolean</option><option>datetime</option><option>object</option><option>array</option></select></label><label class="wide">字段业务含义<input id="directFieldDescription" value="" placeholder="说明字段要回答的分析问题" /></label><label>未知字段必填性<select id="directFieldRequired"><option value="" selected>待确认</option><option value="true">必填</option><option value="false">可选</option></select></label><label>未知字段可空性<select id="directFieldNullable"><option value="" selected>待确认</option><option value="false">不可空</option><option value="true">可空</option></select></label></div></details><div class="direct-design-actions full"><p id="directDesignFeedback" role="status">候选与新建提案需经埋点 Check 后才能成为正式契约。</p><button class="btn primary" type="submit">生成设计交付表</button></div></form><aside class="direct-asset-check" id="directAssetCheck" aria-live="polite" aria-label="资产复用建议"></aside></div></section>`;
+  special.innerHTML=`<section class="direct-design-panel"><div class="view-panel-head"><div><h2>智能埋点设计</h2><p>描述想实现的操作，生成复用、补充字段或新建埋点建议</p></div><div class="personal-ai-head-actions"><span class="prototype-badge" id="personalAiBadge">本地模拟建议</span><button class="btn secondary" id="managePersonalAi" type="button">绑定个人 Key</button></div></div><div class="direct-design-workspace"><form class="direct-design-form" id="directDesignForm" novalidate><label class="full direct-primary-field">想实现的操作<textarea id="directLabel" required placeholder="例如：用户进入 Chatbot 首页收藏列表">用户进入 Chatbot 首页收藏列表</textarea><small>说明用户在什么页面，对什么对象执行什么操作。</small></label><label class="full direct-primary-field">希望观测的结果与分析维度<textarea id="directTrigger" required placeholder="例如：进入页面时记录，并分析入口来源、收藏数量和角色 ID">进入页面时记录，希望分析入口来源、当前收藏数量和角色 ID</textarea><small>说明上报时机，以及需要拆分的业务维度。</small></label><details class="direct-contract-details full"><summary><span>补充契约信息</span><small>确认 Action、归属和字段约束</small></summary><div class="direct-contract-grid"><label class="wide">统计目标<textarea id="directGoal" required>了解 Chatbot 首页收藏列表的访问规模和入口分布</textarea></label><label class="wide">Raw Action<input id="directAction" value="" spellcheck="false" /><small class="direct-action-hint">采用右侧候选后带入，也可手动填写</small></label><label>工作线<select id="directDomain"><option>搜推与触达</option><option>商业化</option><option selected>Chatbot</option><option>运营增长</option><option>创作工具</option><option>用户与平台</option></select></label><label>工作模块<input id="directModule" required value="对话入口" /></label><label>页面位置<input id="directPosition" required value="Chatbot / 首页收藏列表" /></label><label>上报端<select id="directPlatform"><option>Web</option><option>iOS</option><option>Android</option><option selected>Web / iOS / Android</option></select></label><label>产品负责人<input id="directOwner" required value="产品负责人" /></label><label>需求版本<input id="directVersion" required value="1.0.0" /></label><label>契约策略<select id="directChangeType"><option value="" selected>待确认</option><option value="keep">keep - 保持 Raw 契约</option><option value="alias">alias - 建立别名</option><option value="dual_write">dual_write - 双写迁移</option><option value="replace">replace - 审批后替换</option></select></label><label>手动补充字段<input id="directFieldKey" value="" spellcheck="false" /></label><label>字段类型<select id="directFieldType"><option>string</option><option>integer</option><option>number</option><option>boolean</option><option>datetime</option><option>object</option><option>array</option></select></label><label class="wide">字段业务含义<input id="directFieldDescription" value="" placeholder="说明字段要回答的分析问题" /></label><label>未知字段必填性<select id="directFieldRequired"><option value="" selected>待确认</option><option value="true">必填</option><option value="false">可选</option></select></label><label>未知字段可空性<select id="directFieldNullable"><option value="" selected>待确认</option><option value="false">不可空</option><option value="true">可空</option></select></label></div></details><div class="direct-design-actions full"><p id="directDesignFeedback" role="status">建议需经埋点 Check 后才能成为正式契约。</p><div class="direct-design-buttons"><button class="btn secondary" id="runPersonalAi" type="button">连接 AI 并开始</button><button class="btn primary" type="submit">生成设计交付表</button></div></div></form><aside class="direct-asset-check" id="directAssetCheck" aria-live="polite" aria-label="智能埋点建议"></aside></div><dialog class="personal-ai-dialog" id="personalAiDialog" aria-labelledby="personalAiDialogTitle"><form class="personal-ai-form" id="personalAiForm" novalidate><header><div><span>个人 AI</span><h2 id="personalAiDialogTitle">绑定 OpenAI API Key</h2></div><button class="close" id="closePersonalAi" type="button" aria-label="关闭个人 AI 设置">×</button></header><div class="personal-ai-login-fields" id="personalAiLoginFields" hidden><label>团队账号<input id="personalAiAccount" autocomplete="username" spellcheck="false" /></label><label>登录密码<input id="personalAiPassword" type="password" autocomplete="current-password" /></label></div><div class="personal-ai-fields"><label>API Key<input id="personalAiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-..." /></label><label>模型<input id="personalAiModel" value="gpt-5.4" spellcheck="false" /></label></div><p class="personal-ai-feedback" id="personalAiFeedback" role="status">完整 Key 仅会发送给受控后端。</p><footer><button class="btn danger" id="unbindPersonalAi" type="button" hidden>解绑</button><span></span><button class="btn secondary" id="cancelPersonalAi" type="button">取消</button><button class="btn primary" id="bindPersonalAi" type="submit">测试并绑定</button></footer></form></dialog></section>`;
   const directAssetPanel=document.getElementById('directAssetCheck');
   directAssetPanel.removeAttribute('aria-live');
   const directAssetStatus=document.createElement('p');
@@ -2631,19 +2825,126 @@ function renderDirectTrackingDesign(){
   directAssetStatus.setAttribute('aria-live','polite');
   directAssetStatus.setAttribute('aria-atomic','true');
   directAssetPanel.insertAdjacentElement('afterend',directAssetStatus);
+  const personalAiClient=globalThis.TracepointPersonalAI?.createClient?.()||null;
+  const personalAiDialog=document.getElementById('personalAiDialog');
+  const personalAiBadge=document.getElementById('personalAiBadge');
+  const personalAiFeedback=document.getElementById('personalAiFeedback');
+  const personalAiModel=document.getElementById('personalAiModel');
+  const personalAiKey=document.getElementById('personalAiKey');
+  const personalAiAccount=document.getElementById('personalAiAccount');
+  const personalAiPassword=document.getElementById('personalAiPassword');
+  const personalAiLoginFields=document.getElementById('personalAiLoginFields');
+  const bindPersonalAi=document.getElementById('bindPersonalAi');
+  const loginPersonalAi=document.createElement('button');
+  loginPersonalAi.className='btn secondary';
+  loginPersonalAi.type='button';
+  loginPersonalAi.textContent='仅登录';
+  bindPersonalAi.insertAdjacentElement('beforebegin',loginPersonalAi);
+  const runPersonalAi=document.getElementById('runPersonalAi');
+  const managePersonalAi=document.getElementById('managePersonalAi');
+  const unbindPersonalAi=document.getElementById('unbindPersonalAi');
   let latestDirectAnalysis=null;
   let selectedDirectAction='';
+  let personalAiIntent=null;
+  let personalAiIntents=[];
+  let activePersonalAiIntentIndex=0;
+  let personalAiConnected=false;
+  let personalAiAuthenticated=false;
+  let personalAiRequestId=0;
+  let personalAiRequestBusy=false;
   const directFieldSelections=new Map();
+  const personalAiDrafts=new Map();
+  const closePersonalAiDialog=()=>{
+    personalAiKey.value='';
+    personalAiPassword.value='';
+    if(typeof personalAiDialog.close==='function')personalAiDialog.close();
+    else personalAiDialog.removeAttribute('open');
+  };
+  const setPersonalAiAuthState=authenticated=>{
+    if(!document.contains(personalAiLoginFields))return;
+    personalAiAuthenticated=Boolean(authenticated);
+    const canSignIn=typeof globalThis.TracepointAuth?.signInWithPassword==='function';
+    personalAiLoginFields.hidden=!canSignIn||personalAiAuthenticated;
+    loginPersonalAi.hidden=!canSignIn||personalAiAuthenticated;
+    bindPersonalAi.textContent=canSignIn&&!personalAiAuthenticated?'登录并绑定':'测试并绑定';
+  };
+  const updatePersonalAiAction=busy=>{
+    personalAiRequestBusy=Boolean(busy);
+    runPersonalAi.disabled=personalAiRequestBusy;
+    runPersonalAi.textContent=personalAiRequestBusy?'AI 正在生成…':personalAiConnected?'发送给个人 AI':'连接 AI 并开始';
+  };
+  const setPersonalAiConnection=status=>{
+    if(!document.contains(personalAiBadge))return;
+    personalAiConnected=Boolean(status?.connected);
+    personalAiBadge.textContent=personalAiConnected?`个人 AI 已绑定 · ••••${status?.last4||''}`:personalAiAuthenticated?'团队账号已登录':'本地模拟建议';
+    personalAiBadge.classList.toggle('is-connected',personalAiConnected);
+    managePersonalAi.textContent=personalAiConnected?'管理个人 Key':personalAiAuthenticated?'账号已登录':'登录 / 绑定 Key';
+    updatePersonalAiAction(false);
+    unbindPersonalAi.hidden=!personalAiConnected;
+    if(status?.model)personalAiModel.value=status.model;
+  };
+  const setPersonalAiFormBusy=busy=>{
+    bindPersonalAi.disabled=busy;
+    loginPersonalAi.disabled=busy;
+    unbindPersonalAi.disabled=busy;
+    personalAiModel.disabled=busy;
+    personalAiKey.disabled=busy;
+    personalAiAccount.disabled=busy;
+    personalAiPassword.disabled=busy;
+  };
+  const resetPersonalAiIntents=()=>{
+    personalAiIntent=null;
+    personalAiIntents=[];
+    activePersonalAiIntentIndex=0;
+    personalAiDrafts.clear();
+  };
+  const invalidatePersonalAiRequest=clearIntent=>{
+    personalAiRequestId+=1;
+    updatePersonalAiAction(false);
+    if(clearIntent)resetPersonalAiIntents();
+  };
+  const saveActivePersonalAiDraft=()=>{
+    if(!personalAiIntent)return;
+    personalAiDrafts.set(activePersonalAiIntentIndex,{
+      action:document.getElementById('directAction').value,
+      selectedAction:selectedDirectAction,
+      fieldSelections:[...directFieldSelections]
+    });
+  };
+  const activatePersonalAiIntent=index=>{
+    if(!Number.isInteger(index)||index<0||index>=personalAiIntents.length||index===activePersonalAiIntentIndex)return;
+    saveActivePersonalAiDraft();
+    activePersonalAiIntentIndex=index;
+    personalAiIntent=personalAiIntents[index];
+    const draft=personalAiDrafts.get(index);
+    const actionInput=document.getElementById('directAction');
+    actionInput.value=draft?.action||'';
+    selectedDirectAction=draft?.selectedAction||'';
+    directFieldSelections.clear();
+    (draft?.fieldSelections||[]).forEach(([key,value])=>directFieldSelections.set(key,value));
+    actionInput.removeAttribute('aria-invalid');
+    actionInput.removeAttribute('aria-errormessage');
+    updateDirectChatbotModule();
+    updateDirectAssetCheck();
+  };
   const buildDirectRequest=()=>{
     const key=document.getElementById('directFieldKey').value.trim();
     const description=document.getElementById('directFieldDescription').value.trim();
+    const fieldsByKey=new Map();
+    (personalAiIntent?.params||[]).forEach(field=>fieldsByKey.set(field.key,{
+      key:field.key,
+      type:field.type||'string',
+      description:field.description||'',
+      allowedValues:field.allowedValues||[]
+    }));
+    if(key)fieldsByKey.set(key,{key,type:document.getElementById('directFieldType').value,description});
     return {
-      label:document.getElementById('directLabel').value.trim(),
-      trigger:document.getElementById('directTrigger').value.trim(),
+      label:personalAiIntent?.label||document.getElementById('directLabel').value.trim(),
+      trigger:personalAiIntent?.trigger||document.getElementById('directTrigger').value.trim(),
       action:document.getElementById('directAction').value.trim(),
-      fieldIntent:description,
+      fieldIntent:[description,...(personalAiIntent?.params||[]).map(field=>field.description)].filter(Boolean).join('；'),
       fieldSelections:Object.fromEntries(directFieldSelections),
-      fields:key?[{key,type:document.getElementById('directFieldType').value,description}]:[]
+      fields:[...fieldsByKey.values()]
     };
   };
   const updateDirectAssetCheck=()=>{
@@ -2652,7 +2953,7 @@ function renderDirectTrackingDesign(){
     if(!request.label&&!request.trigger){
       latestDirectAnalysis=null;
       directAssetStatus.textContent='等待填写需求描述';
-      panel.innerHTML='<div class="asset-check-state is-waiting"><span>资产复用建议</span><strong>先填写需求描述</strong><p>平台会按页面、对象、动作和字段语义检索当前资产。</p></div>';
+      panel.innerHTML='<div class="asset-check-state is-waiting"><span>智能埋点建议</span><strong>先填写想实现的操作</strong><p>结果将区分复用、补充字段、新建和需要人工判断。</p></div>';
       return;
     }
     latestDirectAnalysis=globalThis.ProductDemandReconciler?.analyze?.([request],globalThis.__trackingAssets||events)?.requests?.[0]||null;
@@ -2661,10 +2962,22 @@ function renderDirectTrackingDesign(){
       panel.innerHTML='<div class="asset-check-state is-waiting"><span>资产复用建议</span><strong>暂时无法生成建议</strong><p>仍可在补充交付信息中手动填写 Raw Action 和字段契约。</p></div>';
       return;
     }
+    if(personalAiIntent&&latestDirectAnalysis.aiRecommendation){
+      const recommendation=latestDirectAnalysis.aiRecommendation;
+      latestDirectAnalysis.aiRecommendation={
+        ...recommendation,
+        mode:'personal_model_intent',
+        warnings:[...(recommendation.warnings||[]).filter(warning=>!String(warning).includes('本地规则')),'个人 AI 仅提取意图，复用与新建结论仍由治理规则生成']
+      };
+    }
     const resolution=getDemandActionResolution(latestDirectAnalysis);
     const unresolvedFields=(latestDirectAnalysis.fields||[]).filter(field=>field.status==='fuzzy').length;
     directAssetStatus.textContent=`${resolution.tier==='exact'?'找到可复用 Action':resolution.tier==='review'?`找到 ${resolution.candidates.length} 个相近 Action`:'建议新建 Action'}${unresolvedFields?`，${unresolvedFields} 个字段待确认`:''}`;
-    panel.innerHTML=`<div class="direct-recommendation-title"><strong>资产复用建议</strong><span>候选与提案均待埋点 Check</span></div>${renderDemandRecommendation(latestDirectAnalysis,{interactive:true,currentAction:request.action})}`;
+    const intentSwitch=personalAiIntents.length>1?`<section class="personal-ai-intent-switch" aria-label="个人 AI 事件意图"><div><strong>AI 拆分了 ${personalAiIntents.length} 个事件意图</strong><span>选择一项后逐条确认并生成交付</span></div><div class="personal-ai-intent-tabs" role="tablist" aria-label="选择事件意图">${personalAiIntents.map((intent,index)=>`<button type="button" role="tab" aria-selected="${index===activePersonalAiIntentIndex?'true':'false'}" data-personal-ai-intent-index="${index}"><span>事件 ${index+1}</span><strong>${escapeFieldHtml(intent.label)}</strong></button>`).join('')}</div></section>`:'';
+    panel.innerHTML=`${intentSwitch}<div class="direct-recommendation-title"><div><strong>智能埋点建议</strong><small>${personalAiIntent?'个人 AI 意图 + 本地治理规则':'本地规则与资产检索模拟'}</small></div><span>候选与提案均待埋点 Check</span></div>${renderDemandRecommendation(latestDirectAnalysis,{interactive:true,currentAction:request.action})}`;
+    panel.querySelectorAll('[data-personal-ai-intent-index]').forEach(button=>button.addEventListener('click',()=>{
+      activatePersonalAiIntent(Number(button.dataset.personalAiIntentIndex));
+    }));
     panel.querySelectorAll('[data-direct-action-choice]').forEach(button=>button.addEventListener('click',()=>{
       const actionInput=document.getElementById('directAction');
       directFieldSelections.clear();
@@ -2683,6 +2996,107 @@ function renderDirectTrackingDesign(){
       panel.querySelector('.demand-field-row.is-fuzzy .demand-field-choice')?.focus({preventScroll:true});
     }));
   };
+  managePersonalAi.addEventListener('click',()=>{
+    personalAiFeedback.textContent=personalAiClient?.configured
+      ?personalAiConnected?'当前 Key 已在后端加密保存。':personalAiAuthenticated?'团队账号已登录；绑定个人 Key 为可选操作。':'登录团队账号后可保存需求和契约；个人 Key 为可选操作。'
+      :'当前尚未接入 CloudBase 登录与后端。';
+    personalAiFeedback.classList.remove('is-error','is-success');
+    if(typeof personalAiDialog.showModal==='function')personalAiDialog.showModal();
+    else personalAiDialog.setAttribute('open','');
+    requestAnimationFrame(()=>!personalAiLoginFields.hidden?personalAiAccount.focus():personalAiConnected?personalAiModel.focus():personalAiKey.focus());
+  });
+  document.getElementById('closePersonalAi').addEventListener('click',closePersonalAiDialog);
+  document.getElementById('cancelPersonalAi').addEventListener('click',closePersonalAiDialog);
+  personalAiDialog.addEventListener('cancel',event=>{event.preventDefault();closePersonalAiDialog()});
+  loginPersonalAi.addEventListener('click',async()=>{
+    const account=personalAiAccount.value.trim();
+    const password=personalAiPassword.value;
+    if(!account||!password){personalAiFeedback.textContent='请填写团队账号和登录密码。';personalAiFeedback.classList.add('is-error');return}
+    setPersonalAiFormBusy(true);
+    personalAiFeedback.textContent='正在登录团队账号…';
+    personalAiFeedback.classList.remove('is-error','is-success');
+    try{
+      await globalThis.TracepointAuth.signInWithPassword(account,password);
+      setPersonalAiAuthState(true);
+      const status=await personalAiClient.status();
+      setPersonalAiConnection(status);
+      personalAiFeedback.textContent='已登录，现在可保存需求草稿和契约版本。';
+      personalAiFeedback.classList.add('is-success');
+    }catch(error){personalAiFeedback.textContent=error?.message||'登录失败';personalAiFeedback.classList.add('is-error')}
+    finally{personalAiPassword.value='';setPersonalAiFormBusy(false)}
+  });
+  document.getElementById('personalAiForm').addEventListener('submit',async event=>{
+    event.preventDefault();
+    const apiKey=personalAiKey.value.trim();
+    const model=personalAiModel.value.trim();
+    const account=personalAiAccount.value.trim();
+    const password=personalAiPassword.value;
+    personalAiKey.value='';
+    personalAiPassword.value='';
+    if(apiKey.length<20||!model){
+      personalAiFeedback.textContent='请填写有效的 OpenAI API Key 和模型。';
+      personalAiFeedback.classList.add('is-error');
+      return;
+    }
+    if(!personalAiClient?.configured){
+      personalAiFeedback.textContent='当前尚未接入 CloudBase 登录与后端。';
+      personalAiFeedback.classList.add('is-error');
+      return;
+    }
+    if(!personalAiAuthenticated&&typeof globalThis.TracepointAuth?.signInWithPassword==='function'&&(!account||!password)){
+      personalAiFeedback.textContent='请填写团队账号和登录密码。';
+      personalAiFeedback.classList.add('is-error');
+      return;
+    }
+    const localHost=['localhost','127.0.0.1','::1'].includes(location.hostname);
+    if(location.protocol!=='https:'&&!localHost){
+      personalAiFeedback.textContent='只能在 HTTPS 页面绑定 API Key。';
+      personalAiFeedback.classList.add('is-error');
+      return;
+    }
+    invalidatePersonalAiRequest(false);
+    setPersonalAiFormBusy(true);
+    personalAiFeedback.textContent='正在验证并绑定…';
+    personalAiFeedback.classList.remove('is-error','is-success');
+    try{
+      if(!personalAiAuthenticated&&typeof globalThis.TracepointAuth?.signInWithPassword==='function'){
+        personalAiFeedback.textContent='正在登录团队账号…';
+        await globalThis.TracepointAuth.signInWithPassword(account,password);
+        setPersonalAiAuthState(true);
+        personalAiFeedback.textContent='正在验证并绑定…';
+      }
+      const status=await personalAiClient.bind({apiKey,model});
+      resetPersonalAiIntents();
+      setPersonalAiConnection(status);
+      updateDirectAssetCheck();
+      personalAiFeedback.textContent='个人 API Key 已绑定。';
+      personalAiFeedback.classList.add('is-success');
+    }catch(error){
+      personalAiFeedback.textContent=error?.message||'绑定失败';
+      personalAiFeedback.classList.add('is-error');
+    }finally{
+      setPersonalAiFormBusy(false);
+    }
+  });
+  unbindPersonalAi.addEventListener('click',async()=>{
+    invalidatePersonalAiRequest(false);
+    setPersonalAiFormBusy(true);
+    personalAiFeedback.textContent='正在解绑…';
+    personalAiFeedback.classList.remove('is-error','is-success');
+    try{
+      await personalAiClient.unbind();
+      resetPersonalAiIntents();
+      setPersonalAiConnection({connected:false});
+      updateDirectAssetCheck();
+      personalAiFeedback.textContent='已解绑个人 API Key。';
+      personalAiFeedback.classList.add('is-success');
+    }catch(error){
+      personalAiFeedback.textContent=error?.message||'解绑失败';
+      personalAiFeedback.classList.add('is-error');
+    }finally{
+      setPersonalAiFormBusy(false);
+    }
+  });
   const updateDirectChatbotModule=()=>{
     if(document.getElementById('directDomain').value!=='Chatbot')return;
     document.getElementById('directModule').value=globalThis.ProductDemandReconciler?.chatbotModule?.({
@@ -2693,6 +3107,7 @@ function renderDirectTrackingDesign(){
   };
   ['directLabel','directTrigger'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{
     const actionInput=document.getElementById('directAction');
+    invalidatePersonalAiRequest(true);
     if(selectedDirectAction&&actionInput.value.trim()===selectedDirectAction)actionInput.value='';
     selectedDirectAction='';
     directFieldSelections.clear();
@@ -2707,12 +3122,82 @@ function renderDirectTrackingDesign(){
     updateDirectChatbotModule();
     updateDirectAssetCheck();
   });
-  ['directGoal','directFieldKey','directFieldDescription'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{updateDirectChatbotModule();updateDirectAssetCheck()}));
+  document.getElementById('directGoal').addEventListener('input',()=>{
+    invalidatePersonalAiRequest(true);
+    updateDirectChatbotModule();
+    updateDirectAssetCheck();
+  });
+  ['directFieldKey','directFieldDescription'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{updateDirectChatbotModule();updateDirectAssetCheck()}));
   document.getElementById('directDomain').addEventListener('change',()=>{updateDirectChatbotModule();updateDirectAssetCheck()});
   document.getElementById('directModule').addEventListener('input',updateDirectAssetCheck);
   document.getElementById('directFieldType').addEventListener('change',updateDirectAssetCheck);
   updateDirectChatbotModule();
   updateDirectAssetCheck();
+  runPersonalAi.addEventListener('click',async()=>{
+    const operation=document.getElementById('directLabel').value.trim();
+    const observation=document.getElementById('directTrigger').value.trim();
+    const feedback=document.getElementById('directDesignFeedback');
+    if(!operation||!observation){
+      feedback.textContent='请先填写想实现的操作和观测结果。';
+      feedback.classList.add('is-error');
+      return;
+    }
+    if(!personalAiClient?.configured||!personalAiConnected){
+      feedback.textContent=personalAiClient?.configured?'请在弹窗中绑定个人 API Key。':'AI 后端尚未配置，当前仍可使用本地模拟建议。';
+      feedback.classList.remove('is-error');
+      managePersonalAi.click();
+      return;
+    }
+    const requestId=++personalAiRequestId;
+    updatePersonalAiAction(true);
+    feedback.textContent='个人 AI 正在拆解操作和字段意图…';
+    feedback.classList.remove('is-error');
+    try{
+      const response=await personalAiClient.suggest({
+        operation,
+        observation,
+        goal:document.getElementById('directGoal').value.trim()
+      });
+      if(requestId!==personalAiRequestId||!document.contains(runPersonalAi))return;
+      personalAiIntents=response.requests;
+      activePersonalAiIntentIndex=0;
+      personalAiIntent=response.requests[0];
+      personalAiDrafts.clear();
+      personalAiDrafts.set(0,{
+        action:document.getElementById('directAction').value,
+        selectedAction:selectedDirectAction,
+        fieldSelections:[]
+      });
+      directFieldSelections.clear();
+      updateDirectChatbotModule();
+      updateDirectAssetCheck();
+      feedback.textContent=response.requests.length>1
+        ?`个人 AI 已拆分 ${response.requests.length} 个事件意图，请在右侧逐条选择并确认。`
+        :`个人 AI 已补充 ${personalAiIntent.params.length} 项字段意图，结论仍需埋点 Check。`;
+    }catch(error){
+      if(requestId!==personalAiRequestId)return;
+      feedback.textContent=`AI 建议失败：${error?.message||'请稍后重试'}；已保留本地建议。`;
+      feedback.classList.add('is-error');
+    }finally{
+      if(requestId===personalAiRequestId&&document.contains(runPersonalAi))updatePersonalAiAction(false);
+    }
+  });
+  if(personalAiClient?.configured){
+    const initializePersonalAi=async()=>{
+      let authenticated=false;
+      if(typeof globalThis.TracepointAuth?.getAccessToken==='function'){
+        try{authenticated=Boolean(await globalThis.TracepointAuth.getAccessToken())}catch{}
+      }
+      setPersonalAiAuthState(authenticated);
+      if(!authenticated){setPersonalAiConnection({connected:false});return}
+      try{setPersonalAiConnection(await personalAiClient.status())}
+      catch{setPersonalAiConnection({connected:false})}
+    };
+    initializePersonalAi();
+  }else{
+    setPersonalAiAuthState(false);
+    setPersonalAiConnection({connected:false});
+  }
   document.getElementById('directDesignForm').onsubmit=event=>{
     event.preventDefault();
     const feedback=document.getElementById('directDesignFeedback');
@@ -2768,18 +3253,19 @@ function renderDirectTrackingDesign(){
     const paramsByKey=new Map();
     recommendedParams.forEach(param=>paramsByKey.set(String(param.key).trim().toLowerCase(),param));
     manualParams.forEach(param=>paramsByKey.set(String(param.key).trim().toLowerCase(),param));
+    const resolvedRequest=buildDirectRequest();
     const candidate={
-      label:document.getElementById('directLabel').value.trim(),
-      action:document.getElementById('directAction').value.trim(),
+      label:resolvedRequest.label,
+      action:resolvedRequest.action,
       businessDomain:document.getElementById('directDomain').value,
       module:document.getElementById('directModule').value.trim(),
-      trigger:document.getElementById('directTrigger').value.trim(),
+      trigger:resolvedRequest.trigger,
       position:document.getElementById('directPosition').value.trim(),
       owner:document.getElementById('directOwner').value.trim(),
       changeType:document.getElementById('directChangeType').value,
       version:document.getElementById('directVersion').value.trim(),
       platform:document.getElementById('directPlatform').value,
-      goal:document.getElementById('directGoal').value.trim(),
+      goal:personalAiIntent?.goal||document.getElementById('directGoal').value.trim(),
       params:[...paramsByKey.values()]
     };
     const validation=globalThis.PrdAssetSync?.validateSubmission?.([candidate])||{valid:true,errors:[]};
@@ -2806,9 +3292,10 @@ function renderDirectTrackingDesign(){
     importedPrdParserIssues=[];
     submittedChangePlan=[];
     analystReviewState={status:'未提交',submittedAt:'',reviewedAt:'',note:''};
+    persistedRequirementId=null;
     intakeMode='contract';
     renderRequirementsDesign('contract');
-    showToast('已生成 1 个设计交付表，等待埋点 Check');
+    persistGovernanceRequirement('draft').then(result=>showToast(result.persisted?'已生成交付表并保存后端草稿':`已生成交付表；后端未保存：${result.reason||'请先登录'}`));
   };
 }
 
@@ -3184,12 +3671,18 @@ function renderImportedPrdDesign(){
   special.innerHTML=`<section class="prd-result prd-imported-design"><div class="view-panel-head"><div><h2>埋点设计交付表</h2><p>产品确认需求后提交埋点 Check；Raw action 与字段 key 保持不变</p></div><div class="prd-result-actions"><button class="btn secondary" id="backToPrdPaste">返回修改</button><button class="btn primary" id="submitAnalystReview"${canSubmitReview?'':' disabled'}>${reviewButtonLabel}</button></div></div><div class="prd-result-summary"><div><span>规范阻断</span><strong${blockingIssues.length?'':' class="prd-valid"'}>${blockingIssues.length} 项</strong></div><div><span>变更事件</span><strong>${createdCount+updatedCount} 个</strong></div><div><span>新增字段 Key</span><strong>${addedFieldCount} 个</strong></div><div><span>无需变更</span><strong>${unchangedCount} 个</strong></div></div>${blockerMarkup}${renderWorkflowContractTable(rows)}</section>`;
   document.querySelector('.prd-result-summary')?.insertAdjacentHTML('beforebegin',renderWorkflowDiffSummary(importedPrdEvents));
   document.getElementById('backToPrdPaste').onclick=()=>renderRequirementsDesign('paste');
-  document.getElementById('submitAnalystReview').onclick=()=>{
+  document.getElementById('submitAnalystReview').onclick=async()=>{
     if(!canSubmitReview)return;
+    const button=document.getElementById('submitAnalystReview');
+    button.disabled=true;
+    button.textContent='正在保存…';
     submittedChangePlan=plan.map(change=>({type:change.type,newFields:(change.newFields||[]).map(field=>[...field])}));
     analystReviewState={status:'待评审',submittedAt:new Date().toLocaleString('zh-CN',{hour12:false}),reviewedAt:'',note:''};
+    const requirementResult=await persistGovernanceRequirement('submitted');
+    let versionResult={persisted:false,reason:'需求草稿未写入后端'};
+    if(requirementResult.persisted)versionResult=await persistGovernanceVersions();
     document.querySelector('[data-view="review"]')?.click();
-    showToast('已提交到浏览器内的模拟埋点 Check 队列，尚未写入正式资产');
+    showToast(versionResult.persisted?'需求与不可变契约版本已写入后端；Check 仍为模拟':'已进入模拟 Check；'+(requirementResult.reason||versionResult.reason||'后端未持久化'));
   };
 }
 
@@ -3454,6 +3947,7 @@ function renderAcceptanceV2(){
 function configurePrimaryAction(view){
   const button=document.getElementById('addBtn');
   const actions={
+    aiAssistant:{label:'管理个人 AI',run:()=>document.getElementById('managePersonalAi')?.click()},
     intake:{label:'＋ 导入 PRD',run:()=>renderRequirementsDesign('paste')},
     review:{label:'＋ 新建 Check',run:()=>document.querySelector('[data-view="intake"]')?.click()},
     debug:{label:'查看研发交付表',run:()=>document.querySelector('.engineering-handoff')?.scrollIntoView({block:'start'})},
@@ -3467,15 +3961,144 @@ function configurePrimaryAction(view){
   button.textContent=action.label;
   button.onclick=action.run;
 }
+function renderDefinitionLibrary(definitions,options={}){
+  const special=document.getElementById('specialView');
+  const target=options.target||special;
+  const items=Array.isArray(definitions)?definitions:[];
+  const collectionLabel=options.collectionLabel||'口径';
+  const ariaLabel=options.ariaLabel||`${collectionLabel}截图`;
+  special.classList.add('show');
+  if(!items.length){
+    target.innerHTML=`<section class="volcano-definition-library is-empty" aria-label="${escapeFieldHtml(ariaLabel)}"><p>${escapeFieldHtml(options.emptyText||`暂无已收录的${collectionLabel}截图`)}</p></section>`;
+    return;
+  }
+  target.innerHTML=`<section class="volcano-definition-library" aria-label="${escapeFieldHtml(ariaLabel)}"><div class="volcano-definition-library-head"><span>已收录${escapeFieldHtml(collectionLabel)}</span><strong>${items.length} 项</strong></div><div class="volcano-definition-list">${items.map(item=>{const image=item.image||{};const title=escapeFieldHtml(item.title||`未命名${collectionLabel}`);const source=escapeFieldHtml(item.source||'');const width=Number(image.width)||1860;const height=Number(image.height)||1174;return `<article class="volcano-definition-item" data-volcano-definition="${escapeFieldHtml(item.id||'')}"><div class="definition-item-head"><div><h2>${title}</h2>${source?`<p>${source}</p>`:''}</div><button class="btn secondary definition-edit-button" type="button" data-edit-definition="${escapeFieldHtml(item.id||'')}" aria-label="编辑 ${title}">编辑</button></div>${image.src?`<button class="volcano-definition-image" type="button" data-aggregation-image="${escapeFieldHtml(image.src)}" data-aggregation-title="${title}" data-aggregation-description="${source}" aria-label="查看 ${title} 截图大图"><img src="${escapeFieldHtml(image.src)}" alt="${escapeFieldHtml(image.alt||`${item.title||collectionLabel}截图`)}" width="${width}" height="${height}" loading="lazy" decoding="async" /><span class="volcano-definition-image-error">截图暂时无法加载</span></button>`:'<div class="definition-image-empty">尚未添加说明图片</div>'}</article>`;}).join('')}</div></section>`;
+  target.querySelectorAll('.volcano-definition-image img').forEach(image=>image.addEventListener('error',()=>{
+    const button=image.closest('.volcano-definition-image');
+    if(!button)return;
+    button.classList.add('is-error');
+    button.disabled=true;
+  },{once:true}));
+  bindAggregationGuide(target);
+}
+const definitionLibraries=[
+  {key:'volcano',label:'火山口径整理',collectionLabel:'火山口径',ariaLabel:'火山口径截图',description:'火山分析口径截图',definitions:volcanoMetricDefinitions},
+  {key:'metric',label:'指标整理',collectionLabel:'指标',ariaLabel:'指标整理截图',description:'指标定义截图',emptyText:'暂无已收录的指标截图',definitions:metricDefinitions}
+];
+const definitionLibraryState={key:'volcano'};
+const definitionSessionKey='tracepoint.definitionEdits.v1';
+function readDefinitionEdits(){
+  try{return JSON.parse(sessionStorage.getItem(definitionSessionKey)||'{}')||{}}catch{return {}}
+}
+function definitionItems(library){
+  const edits=readDefinitionEdits()[library.key]||{};
+  const base=(library.definitions||[]).map((item,index)=>({...item,id:item.id||`${library.key}-source-${index}`}));
+  const merged=base.map(item=>edits[item.id]?{...item,...edits[item.id],image:{...(item.image||{}),...(edits[item.id].image||{})}}:item);
+  const known=new Set(base.map(item=>item.id));
+  return [...merged,...Object.values(edits).filter(item=>!known.has(item.id))];
+}
+function renderDefinitions(){
+  const special=document.getElementById('specialView');
+  const active=definitionLibraries.find(library=>library.key===definitionLibraryState.key)||definitionLibraries[0];
+  const tabs=definitionLibraries.map(library=>{
+    const selected=library.key===active.key;
+    return `<button id="definition-library-tab-${library.key}" type="button" role="tab" aria-selected="${selected}" aria-controls="definitionLibraryPanel" tabindex="${selected?'0':'-1'}" class="${selected?'active':''}" data-definition-library="${library.key}"><span>${escapeFieldHtml(library.label)}</span><b>${definitionItems(library).length}</b></button>`;
+  }).join('');
+  special.classList.add('show');
+  special.innerHTML=`<section class="definition-workspace"><div class="asset-view-control definition-library-control"><div class="asset-view-tabs definition-library-tabs" role="tablist" aria-label="口径整理分类">${tabs}</div><p class="asset-view-context"><strong>${escapeFieldHtml(active.collectionLabel)}</strong><span>${escapeFieldHtml(active.description)}</span></p><button class="btn primary definition-add-button" id="addDefinition" type="button">＋ 新建口径</button></div><div class="definition-library-panel" id="definitionLibraryPanel" role="tabpanel" aria-labelledby="definition-library-tab-${active.key}"></div></section><dialog class="definition-editor" id="definitionEditor" aria-labelledby="definitionEditorTitle"><form id="definitionEditorForm"><header><div><span>页面编辑</span><h2 id="definitionEditorTitle">新建${escapeFieldHtml(active.collectionLabel)}</h2></div><button class="close" id="closeDefinitionEditor" type="button" aria-label="关闭口径编辑">×</button></header><label>指标名称<input id="definitionTitle" maxlength="120" required placeholder="例如：新老用户订阅率" /></label><label>口径说明（选填）<textarea id="definitionDescription" maxlength="1000" placeholder="说明分子、分母、用户范围和统计周期"></textarea></label><div class="definition-paste-field"><span>说明图片</span><div class="definition-paste-target" id="definitionPasteTarget" role="button" tabindex="0" aria-label="粘贴说明图片"><strong>粘贴图片</strong><small>复制截图后在此处粘贴 · PNG、JPG、WebP · 不超过 1 MB</small></div></div><div class="definition-image-preview" id="definitionImagePreview"><span>尚未粘贴图片</span></div><label class="definition-remove-image"><input id="definitionRemoveImage" type="checkbox" /> 移除当前图片</label><p class="definition-editor-note">保存到当前浏览器会话，不代表后台正式口径已更新。</p><footer><button class="btn secondary" id="cancelDefinitionEditor" type="button">取消</button><button class="btn primary" type="submit">保存口径</button></footer></form></dialog>`;
+  const currentItems=definitionItems(active);
+  renderDefinitionLibrary(currentItems,{...active,target:special.querySelector('#definitionLibraryPanel')});
+  bindDefinitionLibraryTabs();
+  bindDefinitionEditor(active,currentItems);
+}
+function bindDefinitionEditor(library,items){
+  const dialog=document.getElementById('definitionEditor');
+  const form=document.getElementById('definitionEditorForm');
+  const title=document.getElementById('definitionTitle');
+  const description=document.getElementById('definitionDescription');
+  const pasteTarget=document.getElementById('definitionPasteTarget');
+  const preview=document.getElementById('definitionImagePreview');
+  const removeImage=document.getElementById('definitionRemoveImage');
+  let editingId='';
+  let imageData='';
+  const updatePreview=()=>{preview.innerHTML=imageData?`<img src="${escapeFieldHtml(imageData)}" alt="待保存的口径说明图片" />`:'<span>尚未粘贴图片</span>'};
+  const open=item=>{
+    editingId=item?.id||'';
+    imageData=item?.image?.src||'';
+    title.value=item?.title||'';
+    description.value=item?.source||'';
+    removeImage.checked=false;
+    document.getElementById('definitionEditorTitle').textContent=item?`编辑${library.collectionLabel}`:`新建${library.collectionLabel}`;
+    updatePreview();
+    dialog.showModal?.();
+    if(!dialog.open)dialog.setAttribute('open','');
+    title.focus();
+  };
+  const close=()=>dialog.close?.();
+  document.getElementById('addDefinition').onclick=()=>open(null);
+  document.querySelectorAll('[data-edit-definition]').forEach(button=>button.onclick=()=>open(items.find(item=>item.id===button.dataset.editDefinition)));
+  document.getElementById('closeDefinitionEditor').onclick=close;
+  document.getElementById('cancelDefinitionEditor').onclick=close;
+  const pasteImage=event=>{
+    const file=[...(event.clipboardData?.items||[])].find(item=>item.type.startsWith('image/'))?.getAsFile();
+    if(!file){if(event.currentTarget===pasteTarget)showToast('剪贴板中没有图片');return}
+    event.preventDefault();
+    event.stopPropagation();
+    if(file.size>1024*1024){showToast('图片不能超过 1 MB');return}
+    const reader=new FileReader();
+    reader.onload=()=>{imageData=String(reader.result||'');removeImage.checked=false;updatePreview()};
+    reader.readAsDataURL(file);
+  };
+  pasteTarget.onclick=()=>pasteTarget.focus();
+  pasteTarget.onpaste=pasteImage;
+  dialog.onpaste=pasteImage;
+  pasteTarget.onkeydown=event=>{
+    if(event.key==='Enter'||event.key===' '){event.preventDefault();pasteTarget.focus()}
+  };
+  form.onsubmit=event=>{
+    event.preventDefault();
+    if(removeImage.checked)imageData='';
+    if(!editingId&&!imageData){showToast('请为新口径添加一张说明图片');return}
+    const edits=readDefinitionEdits();
+    edits[library.key]=edits[library.key]||{};
+    const id=editingId||`${library.key}-manual-${Date.now()}`;
+    edits[library.key][id]={id,title:title.value.trim(),source:description.value.trim(),image:imageData?{src:imageData,alt:`${title.value.trim()}口径说明图片`}:{src:''},sessionEdited:true};
+    try{sessionStorage.setItem(definitionSessionKey,JSON.stringify(edits))}catch{showToast('图片过大，浏览器会话无法保存');return}
+    close();
+    renderDefinitions();
+    showToast(editingId?'口径已在当前页面更新':'口径已添加到当前页面');
+  };
+}
+function bindDefinitionLibraryTabs(){
+  const tabs=[...document.querySelectorAll('[data-definition-library]')];
+  const activate=key=>{
+    if(key===definitionLibraryState.key)return;
+    definitionLibraryState.key=key;
+    renderDefinitions();
+    requestAnimationFrame(()=>document.querySelector(`[data-definition-library="${key}"]`)?.focus({preventScroll:true}));
+  };
+  tabs.forEach((button,index)=>{
+    button.onclick=()=>activate(button.dataset.definitionLibrary);
+    button.onkeydown=event=>{
+      const keys=['ArrowLeft','ArrowRight','Home','End'];
+      if(!keys.includes(event.key))return;
+      event.preventDefault();
+      const nextIndex=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+      activate(tabs[nextIndex].dataset.definitionLibrary);
+    };
+  });
+}
 const switchViewWithoutWorkflow=switchView;
 switchView=function switchViewWithWorkflow(view){
   switchViewWithoutWorkflow(view);
   configurePrimaryAction(view);
-  const isAssetManagementView=['catalog','deprecated','locations','commonFields'].includes(view);
-  const hideHeaderActions=isAssetManagementView||['intake','review','debug','acceptance','issues'].includes(view);
+  const isAssetManagementView=['catalog','deprecated','locations','commonFields','definitions'].includes(view);
+  const hideHeaderActions=isAssetManagementView||['aiAssistant','intake','review','debug','acceptance','issues'].includes(view);
   document.querySelector('.head-actions')?.classList.toggle('view-hidden',hideHeaderActions);
   document.getElementById('page-subtitle')?.classList.toggle('view-hidden',isAssetManagementView||view==='intake');
-  if(view==='intake')renderRequirementsDesign('paste');
+  if(view==='aiAssistant')renderAiAssistant();
+  else if(view==='intake')renderRequirementsDesign('paste');
+  else if(view==='definitions')renderDefinitions();
   else if(view==='review')renderAnalystReview();
   else if(view==='debug'){
     renderEngineeringHandoff();
@@ -4291,7 +4914,7 @@ function matchesCatalogSelection(classification){
 
 function filterCatalogEvents(sourceEvents=events,{includeDirectory=true}={}){
   const filters=getCatalogFilterState();
-  return sourceEvents.filter(event=>{
+  return sourceEvents.filter(event=>!event._adminDeleted).filter(event=>{
     const classification=getCatalogClassification(event);
     const viewClassification=getCatalogViewClassification(event);
     return matchesCatalogBaseFilters(event,classification,filters,viewClassification)
@@ -4430,18 +5053,22 @@ render=function renderEventRowsV3(){
     const evidenceCopy=getTrackingSourceEvidence(event,assetClassification);
     return `<tr data-event-name="${escapeFieldHtml(event.name)}" tabindex="0" aria-label="查看 ${escapeFieldHtml(core.actionName)}，${escapeFieldHtml(core.reportingText)}详情">${core.html}<td><span class="catalog-evidence source-evidence" title="${escapeFieldHtml(evidenceCopy.title)}"><b class="source-kind is-${escapeFieldHtml(evidenceCopy.source)}">${escapeFieldHtml(evidenceCopy.label)}</b>${evidenceCopy.detail?`<small>${escapeFieldHtml(evidenceCopy.detail)}</small>`:''}</span></td><td><button class="row-action" data-open-event="${escapeFieldHtml(event.name)}" title="查看详情" aria-label="查看 ${escapeFieldHtml(core.actionName)} 详情">›</button></td></tr>`;
   }).join('')||'<tr><td class="event-table-empty" colspan="5">没有匹配的埋点</td></tr>';
+  if(isAssetAdmin())rows.querySelectorAll('[data-event-name]').forEach(row=>row.lastElementChild?.insertAdjacentHTML('afterbegin','<div class="swipe-asset-actions"><button type="button" data-swipe-edit>编辑</button><button type="button" data-swipe-delete>删除</button></div>'));
   syncEventTextColumnWidth(document.querySelector('.catalog-table-region table'),list);
   document.querySelectorAll('[data-open-event]').forEach(button=>button.onclick=()=>{
     button.focus({preventScroll:true});
     openDrawerV2(events.find(event=>event.name===button.dataset.openEvent));
   });
+  bindSwipeAssetActions();
+  syncAdminCreateAssetButton();
 };
 
 function renderDeprecatedEvents(){
   const special=document.getElementById('specialView');
-  const candidates=getDeprecatedCandidateEvents();
+  const candidates=getDeprecatedCandidateEvents().filter(event=>!event._adminDeleted);
   const defined=candidates.filter(event=>Boolean(event.codeEvidence));
   const unresolved=candidates.filter(event=>!event.codeEvidence);
+  const manual=events.filter(event=>event._adminDeleted);
   const renderCandidateRows=list=>list.map(event=>{
     const reporting=getEventReportingLogic(event,getCatalogClassification(event));
     const isDefined=Boolean(event.codeEvidence);
@@ -4450,16 +5077,17 @@ function renderDeprecatedEvents(){
     return `<tr><td><code class="event-action-name">${escapeFieldHtml(event.name)}</code></td><td><span class="event-action-logic">${escapeFieldHtml(reporting.text||'上报逻辑待确认')}</span></td><td>${renderFieldContractSummary(event)}</td><td><div class="deprecated-evidence-cell"><div class="deprecated-static-evidence is-${isDefined?'defined':'manual'}"><strong>${label}</strong><span>${detail}</span></div><button class="row-action" type="button" data-open-deprecated-event="${escapeFieldHtml(event.name)}" aria-label="查看 ${escapeFieldHtml(event.name)} 详情">›</button></div></td></tr>`;
   }).join('')||'<tr><td colspan="5" class="event-table-empty">当前没有此类埋点</td></tr>';
   special.classList.add('show');
-  special.innerHTML=`<div class="asset-view-control deprecated-control-bar"><div class="asset-view-tabs deprecated-segmented" role="tablist" aria-label="废弃埋点证据分类"><button type="button" role="tab" aria-selected="true" class="active" data-deprecated-kind="defined"><span>仅有定义</span><b>${defined.length}</b></button><button type="button" role="tab" aria-selected="false" data-deprecated-kind="unresolved"><span>暂无代码证据</span><b>${unresolved.length}</b></button></div><p class="asset-view-context"><strong id="deprecatedTabTitle">仅有定义</strong><span id="deprecatedTabDescription">代码中声明了 Action，但没有找到实际调用上报函数的位置</span></p></div><section class="deprecated-group deprecated-tab-panel"><div class="deprecated-table-wrap"><table>${DEPRECATED_TABLE_COLUMN_GROUP}<thead><tr><th>埋点 Action</th><th>上报逻辑</th><th>字段契约</th><th>静态证据</th></tr></thead><tbody id="deprecatedCandidateRows"></tbody></table></div></section>`;
+  special.innerHTML=`<div class="asset-view-control deprecated-control-bar"><div class="asset-view-tabs deprecated-segmented" role="tablist" aria-label="废弃埋点证据分类"><button type="button" role="tab" aria-selected="true" class="active" data-deprecated-kind="defined"><span>仅有定义</span><b>${defined.length}</b></button><button type="button" role="tab" aria-selected="false" data-deprecated-kind="unresolved"><span>暂无代码证据</span><b>${unresolved.length}</b></button><button type="button" role="tab" aria-selected="false" data-deprecated-kind="manual"><span>人工废弃</span><b>${manual.length}</b></button></div><p class="asset-view-context"><strong id="deprecatedTabTitle">仅有定义</strong><span id="deprecatedTabDescription">代码中声明了 Action，但没有找到实际调用上报函数的位置</span></p></div><section class="deprecated-group deprecated-tab-panel"><div class="deprecated-table-wrap"><table>${DEPRECATED_TABLE_COLUMN_GROUP}<thead><tr><th>埋点 Action</th><th>上报逻辑</th><th>字段契约</th><th>废弃依据与操作</th></tr></thead><tbody id="deprecatedCandidateRows"></tbody></table></div></section>`;
   const groups={
     defined:{title:'仅有定义',description:'代码中声明了 action，但没有找到实际调用上报函数的位置',events:defined},
-    unresolved:{title:'暂无代码证据',description:'人工维护的资产，或当前扫描无法从前端代码解析',events:unresolved}
+    unresolved:{title:'暂无代码证据',description:'人工维护的资产，或当前扫描无法从前端代码解析',events:unresolved},
+    manual:{title:'人工废弃',description:'由管理员明确废除的埋点；保留原始证据、操作时间和恢复能力',events:manual}
   };
   const renderDeprecatedTab=kind=>{
     const group=groups[kind]||groups.defined;
     document.getElementById('deprecatedTabTitle').textContent=group.title;
     document.getElementById('deprecatedTabDescription').textContent=group.description;
-    document.getElementById('deprecatedCandidateRows').innerHTML=renderCandidateRows(group.events);
+    document.getElementById('deprecatedCandidateRows').innerHTML=kind==='manual'?group.events.map(event=>{const row=editableAssetOverrides.get(event.name)||{};const updatedAt=row.updated_at?new Date(row.updated_at).toLocaleString('zh-CN',{hour12:false}):'时间待同步';const restore=isAssetAdmin()?`<button class="btn secondary manual-restore-button" type="button" data-restore-deprecated="${escapeFieldHtml(event.name)}">恢复</button>`:'';return `<tr><td><code class="event-action-name">${escapeFieldHtml(event.name)}</code></td><td><span class="event-action-logic">${escapeFieldHtml(getEventReportingLogic(event,getCatalogClassification(event)).text||'上报逻辑待确认')}</span></td><td>${renderFieldContractSummary(event)}</td><td><div class="manual-deprecated-cell"><div><strong>管理员人工废除</strong><span>${escapeFieldHtml(updatedAt)}</span></div><button class="row-action" type="button" data-open-deprecated-event="${escapeFieldHtml(event.name)}" aria-label="查看 ${escapeFieldHtml(event.name)} 详情">›</button>${restore}</div></td></tr>`;}).join('')||'<tr><td colspan="4" class="event-table-empty">当前没有人工废弃的埋点</td></tr>':renderCandidateRows(group.events);
     syncEventTextColumnWidth(special.querySelector('.deprecated-table-wrap table'),group.events);
     special.querySelectorAll('[data-deprecated-kind]').forEach(tab=>{
       const selected=tab.dataset.deprecatedKind===kind;
@@ -4467,6 +5095,7 @@ function renderDeprecatedEvents(){
       tab.setAttribute('aria-selected',String(selected));
     });
     special.querySelectorAll('[data-open-deprecated-event]').forEach(button=>button.onclick=()=>openDrawerV2(events.find(event=>event.name===button.dataset.openDeprecatedEvent)));
+    special.querySelectorAll('[data-restore-deprecated]').forEach(button=>button.onclick=async()=>{const event=events.find(item=>item.name===button.dataset.restoreDeprecated);const row=editableAssetOverrides.get(event?.name);if(!event||!row)return;if(!confirm(`确认恢复 ${event.name}？`))return;try{await globalThis.TracepointGovernance.saveAssetOverride({rawAction:event.name,content:row.content||{}});await loadEditableAssetOverrides();renderDeprecatedEvents();document.querySelector('[data-deprecated-kind="manual"]')?.click()}catch(error){alert(error?.message||'恢复失败')}});
   };
   special.querySelectorAll('[data-deprecated-kind]').forEach(button=>button.addEventListener('click',()=>renderDeprecatedTab(button.dataset.deprecatedKind)));
   renderDeprecatedTab('defined');
@@ -6648,10 +7277,111 @@ const INTERFACE_EVIDENCE_BY_ACTION=Object.freeze({
   })
 });
 
+const editableAssetOverrides=new Map();
+const originalAssetNames=new Set(events.map(event=>event.name));
+
+function applyEditableAssetOverrides(rows=[]){
+  editableAssetOverrides.clear();
+  rows.forEach(row=>editableAssetOverrides.set(String(row.raw_action||''),row));
+  for(let index=events.length-1;index>=0;index-=1)if(events[index]._adminCreated)events.splice(index,1);
+  rows.forEach(row=>{
+    const content=row.content&&typeof row.content==='object'?row.content:{};
+    if(row.deleted||originalAssetNames.has(String(row.raw_action||''))||!content.manualCreated)return;
+    events.push({name:String(row.raw_action),description:String(content.description||'人工维护埋点'),theme:String(content.theme||'behaviour'),group:String(content.group||'人工维护'),domain:String(content.domain||'待分类'),status:'人工维护',rule:String(content.rule||'上报时机待补充'),source:'管理员人工维护',fields:Array.isArray(content.fields)?content.fields.map(field=>[...field]):[],_adminCreated:true});
+  });
+  events.forEach(event=>{
+    if(!event._baseEditable)event._baseEditable={description:event.description,rule:event.rule,group:event.group,domain:event.domain,theme:event.theme,fields:(event.fields||[]).map(field=>[...field])};
+    Object.assign(event,{...event._baseEditable,fields:event._baseEditable.fields.map(field=>[...field])});
+    event._adminDeleted=false;event._hasAdminImage=false;event._adminImage=null;
+    const row=editableAssetOverrides.get(event.name);
+    if(!row)return;
+    event._adminDeleted=Boolean(row.deleted);
+    const content=row.content&&typeof row.content==='object'?row.content:{};
+    ['description','rule','group','domain','theme'].forEach(key=>{if(typeof content[key]==='string')event[key]=content[key]});
+    if(Array.isArray(content.fields))event.fields=content.fields.map(field=>[String(field[0]||''),String(field[1]||'string'),String(field[2]||'')]);
+    if(Object.hasOwn(content,'image')){event._hasAdminImage=true;event._adminImage=content.image||null;}
+  });
+}
+
+async function loadEditableAssetOverrides(){
+  if(!globalThis.TracepointPlatformMember||!globalThis.TracepointGovernance?.listAssetOverrides)return;
+  try{const response=await globalThis.TracepointGovernance.listAssetOverrides();applyEditableAssetOverrides(response?.overrides||[]);if(typeof render==='function')render()}
+  catch(error){console.warn('资产覆盖加载失败',error?.message||error)}
+}
+
+document.addEventListener('tracepoint:member',event=>{
+  if(event.detail?.member)loadEditableAssetOverrides();
+  else{applyEditableAssetOverrides([]);if(typeof render==='function')render();}
+});
+
+function isAssetAdmin(){return globalThis.TracepointPlatformMember?.role==='admin'}
+
+function renderAdminAssetToolbar(event){
+  if(!isAssetAdmin())return '';
+  return `<section class="admin-asset-toolbar"><div><strong>管理员编辑</strong><span>${editableAssetOverrides.has(event.name)?'当前展示包含后端修改':'当前展示原始资产'}</span></div><div><button class="btn secondary" type="button" data-edit-asset>编辑资产</button><button class="btn danger" type="button" data-delete-asset>移入回收站</button></div></section>`;
+}
+
+function assetImageFromEvent(event){
+  if(event._hasAdminImage)return event._adminImage||{src:''};
+  const base=INTERFACE_EVIDENCE_BY_ACTION[event.name];
+  const hd=typeof InterfaceEvidenceHdAssets==='object'?InterfaceEvidenceHdAssets[event.name]:null;
+  return base?{...base,...(hd||{})}:{src:''};
+}
+
+function getAssetEditorDialog(){
+  let dialog=document.getElementById('assetEditorDialog');
+  if(dialog)return dialog;
+  dialog=document.createElement('dialog');dialog.id='assetEditorDialog';dialog.className='asset-editor-dialog';
+  dialog.innerHTML=`<form id="assetEditorForm" novalidate><header><div><span>管理员内容管理</span><h2>编辑埋点资产</h2></div><button class="close" type="button" data-close-asset-editor aria-label="关闭资产编辑">×</button></header><div class="asset-editor-body"><label>Raw action<input id="assetEditAction" readonly /></label><label>事件说明<textarea id="assetEditDescription" required></textarea></label><label>上报时机<textarea id="assetEditRule" required></textarea></label><div class="asset-editor-grid"><label>一级业务域<input id="assetEditGroup" /></label><label>二级业务模块<input id="assetEditDomain" /></label><label>Theme<input id="assetEditTheme" /></label></div><label>字段列表<textarea id="assetEditFields" class="asset-fields-input" spellcheck="false" placeholder="每行：字段名 | 类型 | 业务说明"></textarea><small>每行一个字段，使用竖线分隔。</small></label><section class="asset-image-editor"><div><strong>界面图片</strong><span>可粘贴截图、选择图片或填写图片地址</span></div><input id="assetEditImageUrl" placeholder="图片地址；留空表示移除图片" /><input id="assetEditImageFile" type="file" accept="image/*" /><div id="assetEditImagePaste" tabindex="0">点击后直接粘贴图片</div><img id="assetEditImagePreview" alt="待保存的界面图片" hidden /></section><p id="assetEditorFeedback" role="status"></p></div><footer><button class="btn secondary" type="button" data-close-asset-editor>取消</button><button class="btn primary" type="submit">保存修改</button></footer></form>`;
+  document.body.appendChild(dialog);
+  dialog.querySelectorAll('[data-close-asset-editor]').forEach(button=>button.onclick=()=>dialog.close());
+  dialog.addEventListener('cancel',event=>{event.preventDefault();dialog.close()});
+  return dialog;
+}
+
+async function compressAssetImage(file){
+  if(!file?.type?.startsWith('image/'))throw new Error('请选择图片文件');
+  const source=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file)});
+  const image=await new Promise((resolve,reject)=>{const item=new Image();item.onload=()=>resolve(item);item.onerror=()=>reject(new Error('图片无法解析'));item.src=source});
+  const scale=Math.min(1,1600/Math.max(image.width,image.height));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);return canvas.toDataURL('image/jpeg',.84);
+}
+
+function openAssetEditor(event,{creating=false}={}){
+  const dialog=getAssetEditorDialog();const image=assetImageFromEvent(event);
+  const actionInput=dialog.querySelector('#assetEditAction');actionInput.value=event.name||'';actionInput.readOnly=!creating;
+  dialog.querySelector('h2').textContent=creating?'新增埋点资产':'编辑埋点资产';dialog.querySelector('#assetEditDescription').value=event.description||'';dialog.querySelector('#assetEditRule').value=event.rule||'';dialog.querySelector('#assetEditGroup').value=event.group||'';dialog.querySelector('#assetEditDomain').value=event.domain||'';dialog.querySelector('#assetEditTheme').value=event.theme||'';
+  dialog.querySelector('#assetEditFields').value=(event.fields||[]).map(field=>field.map(value=>String(value||'').replace(/\|/g,'/')).join(' | ')).join('\n');
+  const imageUrl=dialog.querySelector('#assetEditImageUrl');const preview=dialog.querySelector('#assetEditImagePreview');imageUrl.value=image.src||'';const updatePreview=()=>{preview.hidden=!imageUrl.value;preview.src=imageUrl.value||''};updatePreview();imageUrl.oninput=updatePreview;
+  const useFile=async file=>{try{imageUrl.value=await compressAssetImage(file);updatePreview()}catch(error){dialog.querySelector('#assetEditorFeedback').textContent=error.message}};
+  dialog.querySelector('#assetEditImageFile').onchange=changeEvent=>useFile(changeEvent.target.files?.[0]);dialog.querySelector('#assetEditImagePaste').onpaste=pasteEvent=>{const file=[...pasteEvent.clipboardData.items].find(item=>item.type.startsWith('image/'))?.getAsFile();if(file){pasteEvent.preventDefault();useFile(file)}};
+  dialog.querySelector('#assetEditorFeedback').textContent='修改将保存到后端；原始扫描证据仍保留。';
+  dialog.querySelector('#assetEditorForm').onsubmit=async submitEvent=>{submitEvent.preventDefault();const feedback=dialog.querySelector('#assetEditorFeedback');const rawAction=actionInput.value.trim();if(!/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(rawAction)){feedback.textContent='Raw action 只能使用英文字母开头，并包含字母、数字、点、下划线或短横线。';return}if(creating&&events.some(item=>item.name===rawAction)){feedback.textContent='该 Raw action 已存在，请直接编辑现有资产。';return}const fields=dialog.querySelector('#assetEditFields').value.split('\n').map(line=>line.trim()).filter(Boolean).map(line=>line.split('|').map(value=>value.trim()));if(fields.some(field=>field.length!==3)){feedback.textContent='字段格式不正确，每行必须包含字段名、类型和说明。';return}const content={manualCreated:creating||Boolean(event._adminCreated),description:dialog.querySelector('#assetEditDescription').value.trim(),rule:dialog.querySelector('#assetEditRule').value.trim(),group:dialog.querySelector('#assetEditGroup').value.trim(),domain:dialog.querySelector('#assetEditDomain').value.trim(),theme:dialog.querySelector('#assetEditTheme').value.trim(),fields,image:imageUrl.value?{src:imageUrl.value,title:`${rawAction} 界面定位`,description:'管理员维护的界面图片',evidenceLabel:'管理员维护'}:{src:''}};feedback.textContent='正在保存…';try{await globalThis.TracepointGovernance.saveAssetOverride({rawAction,content});await loadEditableAssetOverrides();dialog.close();const saved=events.find(item=>item.name===rawAction);if(saved)openDrawerV2(saved)}catch(error){feedback.textContent=error?.message||'保存失败'}};
+  dialog.showModal();
+}
+
+function openNewAssetEditor(){openAssetEditor({name:'',description:'',rule:'',group:'人工维护',domain:'待分类',theme:'behaviour',fields:[]},{creating:true})}
+
+function syncAdminCreateAssetButton(){
+  const actions=document.querySelector('.head-actions');if(!actions)return;
+  let button=document.getElementById('adminCreateAsset');
+  if(!isAssetAdmin()){button?.remove();return}
+  if(!button){button=document.createElement('button');button.id='adminCreateAsset';button.type='button';button.className='btn secondary';button.textContent='＋ 新增埋点';button.onclick=openNewAssetEditor;actions.insertBefore(button,document.getElementById('addBtn'));}
+}
+
+async function softDeleteAsset(event){
+  if(!confirm(`确认将 ${event.name} 移入回收站？原始扫描证据不会被删除。`))return;
+  try{await globalThis.TracepointGovernance.deleteAssetOverride(event.name);await loadEditableAssetOverrides();document.getElementById('closeDrawer').click()}catch(error){alert(error?.message||'删除失败')}
+}
+
+function bindAdminAssetActions(event){
+  const edit=document.querySelector('[data-edit-asset]');const remove=document.querySelector('[data-delete-asset]');if(edit)edit.onclick=()=>openAssetEditor(event);if(remove)remove.onclick=()=>softDeleteAsset(event);
+}
+
 function renderInterfaceEvidence(event){
-  const baseEvidence=INTERFACE_EVIDENCE_BY_ACTION[event?.name];
+  if(event?._hasAdminImage&&!event._adminImage?.src)return '';
+  const baseEvidence=event?._hasAdminImage?event._adminImage:INTERFACE_EVIDENCE_BY_ACTION[event?.name];
   if(!baseEvidence)return '';
-  const assetOverride=typeof InterfaceEvidenceHdAssets==='object'?InterfaceEvidenceHdAssets[event.name]:null;
+  const assetOverride=!event._hasAdminImage&&typeof InterfaceEvidenceHdAssets==='object'?InterfaceEvidenceHdAssets[event.name]:null;
   const evidence=assetOverride?{...baseEvidence,...assetOverride}:baseEvidence;
   const previewSrc=evidence.previewSrc||evidence.src;
   const fullSrc=evidence.fullSrc||evidence.src;
@@ -6678,8 +7408,9 @@ function getAggregationLightbox(){
   return lightbox;
 }
 
-function bindAggregationGuide(){
-  const buttons=[...document.querySelectorAll('[data-aggregation-image]')];
+function bindAggregationGuide(scope=document){
+  const scopeRoot=scope&&typeof scope.querySelectorAll==='function'?scope:document;
+  const buttons=[...scopeRoot.querySelectorAll('[data-aggregation-image]')];
   if(!buttons.length)return;
   const lightbox=getAggregationLightbox();
   let activeIndex=0;
@@ -6733,10 +7464,12 @@ openDrawerV2=function openDrawerWithFieldGroups(event){
   document.getElementById('drawerAction').textContent=event.name;
   document.getElementById('drawerReportingLogic').textContent=reportingLogic.text;
   document.getElementById('drawerContent').innerHTML=`${renderInterfaceEvidence(event)}<section class="drawer-section field-explorer-section"><div class="section-line field-explorer-head"><h3>事件独有字段</h3><label class="field-search">⌕<input id="drawerFieldSearch" type="search" placeholder="搜索字段" aria-label="搜索事件独有字段" /></label></div>${fieldContractNotice}${renderFieldExplorer(event)}</section><div class="drawer-secondary">${renderCommonContractReference(event)}${renderAggregationGuide(event)}<details class="drawer-section drawer-disclosure reporting-source-section"${reportingLogic.needsReview?' open':''}><summary><span>上报规则来源</span><small>${escapeFieldHtml(reportingLogic.behaviorLabel)}</small></summary><div class="drawer-disclosure-body"><p>${escapeFieldHtml(reportingLogic.evidenceText)}</p></div></details>${renderCodeEvidence(event)}${renderGovernanceAssessment(event)}${renderPayloadExample(event)}<details class="drawer-section drawer-disclosure"><summary><span>相似事件</span><small>${escapeFieldHtml(labels.similarLabel)}</small></summary><div class="drawer-disclosure-body"><div class="similar-list">${similar.map(item=>{const itemClassification=getCatalogViewClassification(item);const itemLogic=getEventReportingLogic(item,getCatalogClassification(item));const itemCollaboration=(itemClassification.collaborationTags||[]).length?` · 协作：${itemClassification.collaborationTags.join('、')}`:'';return `<button data-similar="${escapeFieldHtml(item.name)}"><strong class="similar-action-name">${escapeFieldHtml(item.name)}</strong><span class="similar-action-logic">${escapeFieldHtml(itemLogic.text)}</span><small>${escapeFieldHtml(itemClassification.businessDomain)} / ${escapeFieldHtml(itemClassification.businessModule)}${escapeFieldHtml(itemCollaboration)}</small></button>`;}).join('')||'<p class="code-evidence-empty">当前目录下暂无相似事件</p>'}</div></div></details><div class="source-note">来源：${escapeFieldHtml(event.source)} · Raw 分类：${escapeFieldHtml(event.group)} / ${escapeFieldHtml(event.domain)} · Theme：${escapeFieldHtml(event.theme)}</div></div>`;
+  document.getElementById('drawerContent').insertAdjacentHTML('afterbegin',renderAdminAssetToolbar(event));
   document.querySelectorAll('[data-similar]').forEach(button=>button.onclick=()=>openDrawerV2(events.find(item=>item.name===button.dataset.similar)));
   bindFieldExplorer();
   bindPayloadExample();
   bindAggregationGuide();
+  bindAdminAssetActions(event);
   drawer.classList.add('show');
   document.getElementById('drawerBackdrop').classList.add('show');
   if(!wasOpen)requestAnimationFrame(()=>document.getElementById('closeDrawer')?.focus({preventScroll:true}));
@@ -6790,6 +7523,20 @@ function clearSelectedEventRow(){
     row.classList.remove('is-selected');
     row.removeAttribute('aria-current');
   });
+}
+
+function bindSwipeAssetActions(){
+  const container=document.getElementById('eventRows');
+  if(!container||!isAssetAdmin())return;
+  const closeAll=except=>container.querySelectorAll('.swipe-actions-open').forEach(row=>{if(row!==except)row.classList.remove('swipe-actions-open')});
+  container.querySelectorAll('[data-event-name]').forEach(row=>{
+    let startX=0,startY=0;
+    row.addEventListener('touchstart',event=>{const touch=event.touches[0];startX=touch.clientX;startY=touch.clientY},{passive:true});
+    row.addEventListener('touchend',event=>{const touch=event.changedTouches[0];const deltaX=touch.clientX-startX;const deltaY=Math.abs(touch.clientY-startY);if(deltaY>40)return;if(deltaX>55){closeAll(row);row.classList.add('swipe-actions-open')}else if(deltaX<-35)row.classList.remove('swipe-actions-open')},{passive:true});
+    row.querySelector('[data-swipe-edit]')?.addEventListener('click',event=>{event.stopPropagation();const asset=events.find(item=>item.name===row.dataset.eventName);if(asset)openAssetEditor(asset)});
+    row.querySelector('[data-swipe-delete]')?.addEventListener('click',event=>{event.stopPropagation();const asset=events.find(item=>item.name===row.dataset.eventName);if(asset)softDeleteAsset(asset)});
+  });
+  container.onclick=event=>{const row=event.target.closest('[data-event-name]');if(row&&!event.target.closest('.swipe-asset-actions'))closeAll(row)};
 }
 
 function openEventFromRow(row){

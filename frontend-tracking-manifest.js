@@ -7,8 +7,22 @@ globalThis.FrontendTrackingManifest={
     "branch": "master",
     "commit": "22b0950c33762b40da30c0137e1281fd4b3d8098",
     "commitShort": "22b0950c33",
-    "scannedAt": "2026-07-21T10:30:58.092Z",
-    "trackedWorkingTreeClean": true
+    "scannedAt": "2026-08-05T02:43:18.319Z",
+    "trackedWorkingTreeClean": true,
+    "definitionRevision": {
+      "commit": "259f08ef50ee8cdc28d7443f1d8a5555adda0984",
+      "commitShort": "259f08ef50",
+      "committedAt": "2026-07-16T09:44:43+08:00",
+      "files": [
+        "packages/shared/handler/event/index.tsx",
+        "packages/shared/handler/event/impl/action.ts",
+        "packages/shared/handler/event/impl/exposure.ts",
+        "packages/shared/handler/event/impl/visit.ts",
+        "packages/shared/handler/event/impl/bigdata.ts",
+        "packages/shared/handler/event/impl/commercial.ts",
+        "packages/shared/handler/event/impl/chatbot.ts"
+      ]
+    }
   },
   "scope": {
     "directories": [
@@ -20,7 +34,6 @@ globalThis.FrontendTrackingManifest={
       "mocks",
       "fixtures",
       "stories",
-      "external marketing SDK events",
       "common envelope fields"
     ],
     "ignoredCallFamilies": [
@@ -84,6 +97,95 @@ globalThis.FrontendTrackingManifest={
     "dynamicCalls": 1,
     "ignoredCalls": 1,
     "deprecatedEvents": 2
+  },
+  "typedDefinitions": {
+    "total": 317,
+    "channels": {
+      "action": 224,
+      "visit": 15,
+      "exposure": 32,
+      "commercial": 9,
+      "bigData": 2,
+      "chatbot": 35
+    }
+  },
+  "externalConversionTracking": {
+    "includedInTypedDefinitionTotal": false,
+    "sourceFiles": [
+      "packages/shared/utils/tracker/index.ts",
+      "packages/shared/utils/tracker/googleTrack.ts"
+    ],
+    "events": [
+      {
+        "name": "Subscribe",
+        "mappings": {
+          "facebook": "Subscribe",
+          "snapchat": "Subscribe",
+          "tiktok": "Subscribe",
+          "firebase": "purchase"
+        },
+        "unifiedEntryDispatch": [
+          "facebook",
+          "snapchat",
+          "firebase"
+        ],
+        "definedButNotDispatchedByUnifiedEntry": [
+          "tiktok"
+        ]
+      },
+      {
+        "name": "SignUp",
+        "mappings": {
+          "facebook": "CompleteRegistration",
+          "snapchat": "CompleteRegistration",
+          "tiktok": "CompleteRegistration",
+          "firebase": "sign_up"
+        },
+        "unifiedEntryDispatch": [
+          "facebook",
+          "snapchat",
+          "firebase"
+        ],
+        "definedButNotDispatchedByUnifiedEntry": [
+          "tiktok"
+        ]
+      },
+      {
+        "name": "SpentCredits",
+        "mappings": {
+          "facebook": "SpentCredits",
+          "snapchat": "SpentCredits",
+          "tiktok": "SpentCredits",
+          "firebase": "spend_virtual_currency"
+        },
+        "unifiedEntryDispatch": [
+          "facebook",
+          "snapchat",
+          "firebase"
+        ],
+        "definedButNotDispatchedByUnifiedEntry": [
+          "tiktok"
+        ]
+      }
+    ],
+    "googleAdsConversions": [
+      {
+        "name": "visit",
+        "method": "GoogleTrack.visitTrack",
+        "status": "called"
+      },
+      {
+        "name": "registration",
+        "method": "GoogleTrack.registerTrack",
+        "status": "called"
+      },
+      {
+        "name": "subscription",
+        "method": "GoogleTrack.subscribeTrack",
+        "status": "called"
+      }
+    ],
+    "note": "Static code evidence only. It does not prove that an SDK bridge, browser conversion, or production receiver accepted the event."
   },
   "baseline": {
     "known": {

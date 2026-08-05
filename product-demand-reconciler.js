@@ -561,6 +561,45 @@
       conflicts:[...candidate.conflicts]
     };
   }
+  function buildAiRecommendation(item){
+    const fields=item?.fields||[];
+    const changedFields=fields.filter(field=>field.status!=='existing');
+    const unresolvedFields=fields.filter(field=>field.status==='fuzzy');
+    const actionTier=item?.actionResolution?.tier||'new';
+    let decision='create_new';
+    if(actionTier==='fuzzy')decision='needs_review';
+    else if(actionTier==='exact')decision=changedFields.length?'extend_existing':'reuse_existing';
+    const targetAction=decision==='needs_review'?null:item?.proposedAction||item?.matchedEvent?.name||null;
+    const reason=decision==='reuse_existing'
+      ?'现有 Action 覆盖相同操作，需求字段可直接沿用。'
+      :decision==='extend_existing'
+      ?`现有 Action 覆盖相同操作，建议补充 ${changedFields.length} 项字段或枚举定义。`
+      :decision==='needs_review'
+      ?'存在相近 Action，但当前证据不足以自动确认复用关系。'
+      :'未找到可直接复用的 Action，建议生成新的 Canonical proposal。';
+    const warnings=[];
+    if(decision==='needs_review')warnings.push('必须先选择或排除相近 Action');
+    if(unresolvedFields.length)warnings.push(`${unresolvedFields.length} 个字段存在多个相近 Key`);
+    if(decision==='create_new')warnings.push('新 Action 仅为待确认提案');
+    warnings.push('当前结果由本地规则与资产检索生成，未调用模型 API');
+    return {
+      schemaVersion:'tracking-ai-recommendation/v1',
+      mode:'simulated_local',
+      decision,
+      targetAction,
+      candidateActions:(item?.actionResolution?.candidates||[]).map(candidate=>candidate?.event?.name).filter(Boolean),
+      suggestedFields:fields.map(field=>({
+        key:field.key||field.newProposalKey||'',
+        type:field.type||'string',
+        status:field.status||'new',
+        sourceActions:Array.isArray(field.sourceActions)?[...field.sourceActions]:field.sourceActions?[String(field.sourceActions)]:[],
+        reason:field.description||field.intent||''
+      })),
+      confidence:Number.isFinite(item?.confidence)&&item.confidence>0?Math.round(item.confidence)/100:null,
+      reason,
+      warnings
+    };
+  }
   function analyze(requests,assets){
     const fieldVocabulary=buildFieldVocabulary(assets);
     return {requests:(requests||[]).map(request=>{
@@ -600,6 +639,7 @@
       });
       item.businessDomain=inferBusinessDomain(intent,matchedEvent,item);
       item.module=inferModule(intent,matchedEvent,item);
+      item.aiRecommendation=buildAiRecommendation(item);
       return item;
     })};
   }
@@ -635,5 +675,5 @@
       }))
     }));
   }
-  return {analyze,toContractEvents,chatbotModule,isCommonField:key=>COMMON_FIELDS.has(normalizedFieldKey(key))};
+  return {analyze,toContractEvents,buildAiRecommendation,chatbotModule,isCommonField:key=>COMMON_FIELDS.has(normalizedFieldKey(key))};
 });
