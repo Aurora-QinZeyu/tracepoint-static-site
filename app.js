@@ -4047,16 +4047,33 @@ const definitionLibraries=[
   {key:'metric',label:'指标整理',collectionLabel:'指标',ariaLabel:'指标整理截图',description:'指标定义截图',emptyText:'暂无已收录的指标截图',definitions:metricDefinitions}
 ];
 const definitionLibraryState={key:'volcano'};
-const definitionSessionKey='tracepoint.definitionEdits.v1';
-function readDefinitionEdits(){
-  try{return JSON.parse(sessionStorage.getItem(definitionSessionKey)||'{}')||{}}catch{return {}}
-}
+const persistedDefinitions={volcano:new Map(),metric:new Map()};
+let definitionsLoading=false;
+function canManageDefinitions(){return globalThis.TracepointPlatformMember?.role==='admin'}
+function definitionEdits(libraryKey){return persistedDefinitions[libraryKey]||new Map()}
 function definitionItems(library){
-  const edits=readDefinitionEdits()[library.key]||{};
+  const edits=definitionEdits(library.key);
   const base=(library.definitions||[]).map((item,index)=>({...item,id:item.id||`${library.key}-source-${index}`}));
-  const merged=base.map(item=>edits[item.id]?{...item,...edits[item.id],image:{...(item.image||{}),...(edits[item.id].image||{})}}:item);
+  const merged=base.map(item=>edits.has(item.id)?{...item,...edits.get(item.id),image:{...(item.image||{}),...(edits.get(item.id).image||{})}}:item);
   const known=new Set(base.map(item=>item.id));
-  return [...merged,...Object.values(edits).filter(item=>!known.has(item.id))];
+  return [...merged,...[...edits.values()].filter(item=>!known.has(item.id))];
+}
+async function loadPersistedDefinitions(){
+  if(definitionsLoading||!globalThis.TracepointPlatformMember||!globalThis.TracepointGovernance?.listDefinitions)return;
+  definitionsLoading=true;
+  try{
+    const response=await globalThis.TracepointGovernance.listDefinitions();
+    Object.values(persistedDefinitions).forEach(items=>items.clear());
+    (response?.definitions||[]).forEach(row=>{
+      if(!persistedDefinitions[row.library]||!row.id)return;
+      persistedDefinitions[row.library].set(row.id,{
+        id:row.id,title:row.title,source:row.description||'',
+        image:{src:row.imageData||'',alt:row.imageAlt||`${row.title}口径说明图片`},persisted:true
+      });
+    });
+    if(document.querySelector('[data-view="definitions"].active'))renderDefinitions();
+  }catch(error){console.warn('口径数据库加载失败',error?.message||error)}
+  finally{definitionsLoading=false}
 }
 function renderDefinitions(){
   const special=document.getElementById('specialView');
@@ -4066,7 +4083,9 @@ function renderDefinitions(){
     return `<button id="definition-library-tab-${library.key}" type="button" role="tab" aria-selected="${selected}" aria-controls="definitionLibraryPanel" tabindex="${selected?'0':'-1'}" class="${selected?'active':''}" data-definition-library="${library.key}"><span>${escapeFieldHtml(library.label)}</span><b>${definitionItems(library).length}</b></button>`;
   }).join('');
   special.classList.add('show');
-  special.innerHTML=`<section class="definition-workspace"><div class="asset-view-control definition-library-control"><div class="asset-view-tabs definition-library-tabs" role="tablist" aria-label="口径整理分类">${tabs}</div><p class="asset-view-context"><strong>${escapeFieldHtml(active.collectionLabel)}</strong><span>${escapeFieldHtml(active.description)}</span></p><button class="btn primary definition-add-button" id="addDefinition" type="button">＋ 新建口径</button></div><div class="definition-library-panel" id="definitionLibraryPanel" role="tabpanel" aria-labelledby="definition-library-tab-${active.key}"></div></section><dialog class="definition-editor" id="definitionEditor" aria-labelledby="definitionEditorTitle"><form id="definitionEditorForm"><header><div><span>页面编辑</span><h2 id="definitionEditorTitle">新建${escapeFieldHtml(active.collectionLabel)}</h2></div><button class="close" id="closeDefinitionEditor" type="button" aria-label="关闭口径编辑">×</button></header><label>指标名称<input id="definitionTitle" maxlength="120" required placeholder="例如：新老用户订阅率" /></label><label>口径说明（选填）<textarea id="definitionDescription" maxlength="1000" placeholder="说明分子、分母、用户范围和统计周期"></textarea></label><div class="definition-paste-field"><span>说明图片</span><div class="definition-paste-target" id="definitionPasteTarget" role="button" tabindex="0" aria-label="粘贴说明图片"><strong>粘贴图片</strong><small>复制截图后在此处粘贴 · PNG、JPG、WebP · 不超过 1 MB</small></div></div><div class="definition-image-preview" id="definitionImagePreview"><span>尚未粘贴图片</span></div><label class="definition-remove-image"><input id="definitionRemoveImage" type="checkbox" /> 移除当前图片</label><p class="definition-editor-note">保存到当前浏览器会话，不代表后台正式口径已更新。</p><footer><button class="btn secondary" id="cancelDefinitionEditor" type="button">取消</button><button class="btn primary" type="submit">保存口径</button></footer></form></dialog>`;
+  const manageable=canManageDefinitions();
+  const addLabel=manageable?'＋ 新建口径':globalThis.TracepointPlatformMember?'仅管理员可新建':'登录管理员后新建';
+  special.innerHTML=`<section class="definition-workspace"><div class="asset-view-control definition-library-control"><div class="asset-view-tabs definition-library-tabs" role="tablist" aria-label="口径整理分类">${tabs}</div><p class="asset-view-context"><strong>${escapeFieldHtml(active.collectionLabel)}</strong><span>${escapeFieldHtml(active.description)}</span></p><button class="btn primary definition-add-button" id="addDefinition" type="button" ${manageable?'':'disabled'}>${addLabel}</button></div><div class="definition-library-panel" id="definitionLibraryPanel" role="tabpanel" aria-labelledby="definition-library-tab-${active.key}"></div></section><dialog class="definition-editor" id="definitionEditor" aria-labelledby="definitionEditorTitle"><form id="definitionEditorForm"><header><div><span>口径管理</span><h2 id="definitionEditorTitle">新建${escapeFieldHtml(active.collectionLabel)}</h2></div><button class="close" id="closeDefinitionEditor" type="button" aria-label="关闭口径编辑">×</button></header><label>指标名称<input id="definitionTitle" maxlength="120" required placeholder="例如：新老用户订阅率" /></label><label>口径说明（选填）<textarea id="definitionDescription" maxlength="1000" placeholder="说明分子、分母、用户范围和统计周期"></textarea></label><div class="definition-paste-field"><span>说明图片</span><div class="definition-paste-target" id="definitionPasteTarget" role="button" tabindex="0" aria-label="粘贴说明图片"><strong>粘贴图片</strong><small>复制截图后在此处粘贴 · PNG、JPG、WebP · 不超过 1 MB</small></div></div><div class="definition-image-preview" id="definitionImagePreview"><span>尚未粘贴图片</span></div><label class="definition-remove-image"><input id="definitionRemoveImage" type="checkbox" /> 移除当前图片</label><p class="definition-editor-note">保存后写入团队数据库，并记录操作账号和修改时间。</p><footer><button class="btn secondary" id="cancelDefinitionEditor" type="button">取消</button><button class="btn primary" type="submit">保存口径</button></footer></form></dialog>`;
   const currentItems=definitionItems(active);
   renderDefinitionLibrary(currentItems,{...active,target:special.querySelector('#definitionLibraryPanel')});
   bindDefinitionLibraryTabs();
@@ -4096,8 +4115,11 @@ function bindDefinitionEditor(library,items){
     title.focus();
   };
   const close=()=>dialog.close?.();
-  document.getElementById('addDefinition').onclick=()=>open(null);
-  document.querySelectorAll('[data-edit-definition]').forEach(button=>button.onclick=()=>open(items.find(item=>item.id===button.dataset.editDefinition)));
+  document.getElementById('addDefinition').onclick=()=>{if(canManageDefinitions())open(null)};
+  document.querySelectorAll('[data-edit-definition]').forEach(button=>{
+    button.hidden=!canManageDefinitions();
+    button.onclick=()=>{if(canManageDefinitions())open(items.find(item=>item.id===button.dataset.editDefinition))};
+  });
   document.getElementById('closeDefinitionEditor').onclick=close;
   document.getElementById('cancelDefinitionEditor').onclick=close;
   const pasteImage=event=>{
@@ -4116,18 +4138,25 @@ function bindDefinitionEditor(library,items){
   pasteTarget.onkeydown=event=>{
     if(event.key==='Enter'||event.key===' '){event.preventDefault();pasteTarget.focus()}
   };
-  form.onsubmit=event=>{
+  form.onsubmit=async event=>{
     event.preventDefault();
+    if(!canManageDefinitions()){showToast('只有管理员可以保存口径');return}
     if(removeImage.checked)imageData='';
     if(!editingId&&!imageData){showToast('请为新口径添加一张说明图片');return}
-    const edits=readDefinitionEdits();
-    edits[library.key]=edits[library.key]||{};
     const id=editingId||`${library.key}-manual-${Date.now()}`;
-    edits[library.key][id]={id,title:title.value.trim(),source:description.value.trim(),image:imageData?{src:imageData,alt:`${title.value.trim()}口径说明图片`}:{src:''},sessionEdited:true};
-    try{sessionStorage.setItem(definitionSessionKey,JSON.stringify(edits))}catch{showToast('图片过大，浏览器会话无法保存');return}
-    close();
-    renderDefinitions();
-    showToast(editingId?'口径已在当前页面更新':'口径已添加到当前页面');
+    const submit=form.querySelector('[type="submit"]');
+    submit.disabled=true;
+    try{
+      await globalThis.TracepointGovernance.saveDefinition({
+        id,library:library.key,title:title.value.trim(),description:description.value.trim(),
+        imageData,imageAlt:`${title.value.trim()}口径说明图片`
+      });
+      await loadPersistedDefinitions();
+      close();
+      renderDefinitions();
+      showToast(editingId?'口径已更新并记录':'口径已保存到团队数据库');
+    }catch(error){showToast(error?.message||'口径保存失败')}
+    finally{submit.disabled=false}
   };
 }
 function bindDefinitionLibraryTabs(){
@@ -7377,8 +7406,12 @@ async function loadEditableAssetOverrides(){
 }
 
 document.addEventListener('tracepoint:member',event=>{
-  if(event.detail?.member)loadEditableAssetOverrides();
-  else{applyEditableAssetOverrides([]);if(typeof render==='function')render();}
+  if(event.detail?.member){loadEditableAssetOverrides();loadPersistedDefinitions()}
+  else{
+    applyEditableAssetOverrides([]);
+    Object.values(persistedDefinitions).forEach(items=>items.clear());
+    if(typeof render==='function')render();
+  }
 });
 
 function isAssetAdmin(){return globalThis.TracepointPlatformMember?.role==='admin'}
