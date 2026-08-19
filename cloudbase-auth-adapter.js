@@ -32,6 +32,9 @@
     const sdkUrl=String(config.sdkUrl||DEFAULT_SDK_URL).trim()||DEFAULT_SDK_URL;
     let sdkPromise=null;
     let authPromise=null;
+    const sessionRetryDelays=Array.isArray(options.sessionRetryDelays)?options.sessionRetryDelays:[0,250,750];
+
+    const wait=delay=>delay>0?new Promise(resolve=>setTimeout(resolve,delay)):Promise.resolve();
 
     function loadSdk(){
       if(root?.cloudbase?.init)return Promise.resolve(root.cloudbase);
@@ -88,8 +91,15 @@
 
     async function getSession(){
       const {auth}=await getAuth();
-      const data=assertResponse(await auth.getSession(),'获取 CloudBase 登录会话失败');
-      return data.session||null;
+      let lastError=null;
+      for(const delay of sessionRetryDelays){
+        await wait(Number(delay)||0);
+        try{
+          const data=assertResponse(await auth.getSession(),'获取 CloudBase 登录会话失败');
+          return data.session||null;
+        }catch(error){lastError=error}
+      }
+      throw lastError||authError('cloudbase_session_unavailable','获取 CloudBase 登录会话失败');
     }
 
     async function getAccessToken(){

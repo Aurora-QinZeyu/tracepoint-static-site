@@ -28,6 +28,8 @@
     return {
       get configured(){return Boolean(resolveEndpoint()&&typeof getAccessToken==='function')},
       currentMember:()=>request('/me',{},resolveEndpoint().replace(/\/governance$/,'/platform')),
+      updateMemberProfile:profile=>request('/profile',{method:'PUT',body:JSON.stringify(profile)},resolveEndpoint().replace(/\/governance$/,'/platform')),
+      listMemberProfileHistory:()=>request('/profile/history',{},resolveEndpoint().replace(/\/governance$/,'/platform')),
       listAssetOverrides:()=>request('/overrides',{},resolveEndpoint().replace(/\/governance$/,'/assets')),
       saveAssetOverride:asset=>request('/overrides',{method:'PUT',body:JSON.stringify(asset)},resolveEndpoint().replace(/\/governance$/,'/assets')),
       deleteAssetOverride:rawAction=>request(`/overrides?rawAction=${encodeURIComponent(rawAction)}`,{method:'DELETE'},resolveEndpoint().replace(/\/governance$/,'/assets')),

@@ -17,12 +17,31 @@ function initPlatformAccountMenu(){
   const signedIn=document.getElementById('accountSignedIn');
   const signIn=document.getElementById('accountSignIn');
   const signOut=document.getElementById('accountSignOut');
+  const saveProfile=document.getElementById('accountSaveProfile');
+  const profileDisplayName=document.getElementById('accountProfileDisplayName');
+  const historyList=document.getElementById('accountHistoryList');
   const username=document.getElementById('accountUsername');
   const password=document.getElementById('accountPassword');
   const feedback=document.getElementById('accountFeedback');
   let member=null;
+  let restoringMember=null;
   const close=()=>{password.value='';typeof dialog.close==='function'?dialog.close():dialog.removeAttribute('open')};
   const roleLabel=role=>role==='admin'?'管理员 · 可管理全部内容':'使用者 · 可提交需求和问题';
+  const renderHistory=history=>{
+    historyList.replaceChildren();
+    if(!history?.length){const empty=document.createElement('li');empty.textContent='暂无修改记录';historyList.append(empty);return}
+    history.forEach(item=>{
+      const row=document.createElement('li');
+      const changedAt=item.changedAt?new Date(item.changedAt).toLocaleString('zh-CN',{hour12:false}):'时间未记录';
+      row.textContent=`${item.oldDisplayName||'未设置'} → ${item.newDisplayName} · ${changedAt}`;
+      historyList.append(row);
+    });
+  };
+  const loadProfileHistory=async()=>{
+    if(!member)return renderHistory([]);
+    try{const response=await globalThis.TracepointGovernance.listMemberProfileHistory();renderHistory(response?.history||[])}
+    catch(error){renderHistory([]);feedback.textContent=error?.message||'修改记录加载失败';feedback.classList.add('is-error')}
+  };
   const render=()=>{
     const authenticated=Boolean(member);
     const displayName=String(member?.displayName||'团队成员');
@@ -38,24 +57,34 @@ function initPlatformAccountMenu(){
     signedIn.hidden=!authenticated;
     signIn.hidden=authenticated;
     signOut.hidden=!authenticated;
+    saveProfile.hidden=!authenticated;
+    profileDisplayName.value=authenticated?String(member?.displayName||''):'';
     document.getElementById('accountDialogTitle').textContent=authenticated?'账号设置':'登录 Tracepoint';
     globalThis.TracepointPlatformMember=member;
     document.dispatchEvent(new CustomEvent('tracepoint:member',{detail:{member}}));
   };
-  const loadMember=async()=>{
-    try{
-      const session=await globalThis.TracepointAuth?.getSession?.();
-      if(!session){member=null;render();return}
-      const response=await globalThis.TracepointGovernance?.currentMember?.();
-      member=response?.user||null;
-    }catch(_error){member=null}
-    render();
+  const loadMember=()=>{
+    if(restoringMember)return restoringMember;
+    restoringMember=(async()=>{
+      try{
+        const session=await globalThis.TracepointAuth?.getSession?.();
+        if(!session){member=null;render();return}
+        const response=await globalThis.TracepointGovernance?.currentMember?.();
+        member=response?.user||member;
+        render();
+      }catch(_error){
+        // A temporary SDK or network failure must not turn a persisted session into a logout.
+        if(!member)render();
+      }finally{restoringMember=null}
+    })();
+    return restoringMember;
   };
   button.addEventListener('click',()=>{
-    feedback.textContent=member?'如需更换账号，请先退出当前账号。':'管理员和使用者都从这里登录。';
+    feedback.textContent=member?'可修改显示名称；账号角色保持不变。':'管理员和使用者都从这里登录。';
     feedback.classList.remove('is-error','is-success');
     typeof dialog.showModal==='function'?dialog.showModal():dialog.setAttribute('open','');
-    requestAnimationFrame(()=>member?signOut.focus():username.focus());
+    if(member)loadProfileHistory();
+    requestAnimationFrame(()=>member?profileDisplayName.focus():username.focus());
   });
   document.getElementById('closeAccountDialog').addEventListener('click',close);
   document.getElementById('cancelAccountDialog').addEventListener('click',close);
@@ -73,11 +102,28 @@ function initPlatformAccountMenu(){
       const response=await globalThis.TracepointGovernance.currentMember();
       member=response?.user||{displayName:account,role:'member'};
       render();
+      await loadProfileHistory();
       feedback.textContent='登录成功。';
       feedback.classList.add('is-success');
       username.value='';
     }catch(error){feedback.textContent=error?.message||'登录失败';feedback.classList.add('is-error')}
     finally{password.value='';signIn.disabled=false}
+  });
+  saveProfile.addEventListener('click',async()=>{
+    const displayName=profileDisplayName.value.trim();
+    if(!displayName||displayName.length>60){feedback.textContent='显示名称必须为 1 至 60 个字符。';feedback.classList.add('is-error');return}
+    saveProfile.disabled=true;
+    feedback.textContent='正在保存…';
+    feedback.classList.remove('is-error','is-success');
+    try{
+      const response=await globalThis.TracepointGovernance.updateMemberProfile({displayName});
+      member={...member,...response?.user};
+      render();
+      await loadProfileHistory();
+      feedback.textContent='显示名称已更新，修改记录已保存。';
+      feedback.classList.add('is-success');
+    }catch(error){feedback.textContent=error?.message||'保存失败';feedback.classList.add('is-error')}
+    finally{saveProfile.disabled=false}
   });
   signOut.addEventListener('click',async()=>{
     signOut.disabled=true;
@@ -93,9 +139,10 @@ function initPlatformAccountMenu(){
   });
   render();
   loadMember();
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadMember()});
 }
 
-initPlatformAccountMenu();
+if(typeof document!=='undefined')initPlatformAccountMenu();
 const GENERATE_ENTRY_POINT_MEANINGS={
   detail:'详情页',direct:'瀑布流直接入口','half-direct':'半屏详情页',comment:'评论区入口',direct_generate:'直接生成入口',build:'Build 创作页'
 };
@@ -932,6 +979,7 @@ const REVIEWED_FIELD_SEMANTICS={
   'chatbot_message_receive.is_success':{meaning:'标记本次 AI 消息是否成功返回。',valueMeaningSource:'frontend_code',values:{true:'消息成功返回',false:'消息返回失败'}},
   'chatbot_message_receive.from_goon':{meaning:'标记本次返回是否来自用户点击“继续说”触发的续写请求。',valueMeaningSource:'frontend_code',values:{true:'来自继续说请求',false:'来自普通消息请求'}},
   'chatbot_message_receive.bond_level':{meaning:'收到本次 AI 返回消息时，用户与该 Chatbot 的当前亲密度等级。前端固定支持 Lv.1–Lv.6。',valueMeaningSource:'frontend_code',values:CHATBOT_BOND_LEVEL_MEANINGS},
+  'chatbot_message_receive_server.response_time':{meaning:'单次 AI 生成内容返回结果的时长，单位为秒，保留两位小数；Raw key 按原始 PRD 保留。'},
 
   'chatbot_message_send.type':{meaning:'用户发送消息所面向 Chatbot 的内容生产类型。',valueMeaningSource:'frontend_code',values:CHATBOT_CONTENT_TYPE_MEANINGS},
   'chatbot_message_send.sort':{meaning:'当前 Chatbot 在最初进入来源列表中的排序位置；无法确定时为 null。'},
@@ -1048,6 +1096,7 @@ const REVIEWED_FIELD_SEMANTICS={
   'payment.payment_id':{meaning:'支付单 ID，用于关联支付渠道交易、支付状态和退款等后续支付链路。',openValueSet:true},
   'payment.subscription_id':{meaning:'订阅 ID；订阅订单必须填写，一次性购买等非订阅场景使用 null。',openValueSet:true},
   'payment.channel':{meaning:'完成本次支付的渠道；当前后端契约固定为 Google。',valueMeaningSource:'backend_contract',values:{google:'Google 支付渠道'}},
+  'payment.app_install_source_ad_channel':{meaning:'用户安装归因的广告渠道，用于按 Meta、Google 等投放来源拆分支付成功订单。',valueMeaningSource:'backend_contract',valueMode:'open',values:{meta:'Meta 广告渠道',google:'Google 广告渠道'}},
 
   'login_popup.location':{meaning:'登录弹窗被打开时的业务触发入口，直接取 requireLogin/handleNotLogin 传入的 reason。',valueMeaningSource:'frontend_code',values:LOGIN_POPUP_LOCATION_MEANINGS}
 };
@@ -1946,7 +1995,8 @@ const VERIFIED_WIRE_CONTRACT_CORRECTIONS=Object.freeze({
 
 const seedEvents=[
  {name:'more_popup_show',description:'更多弹窗曝光',theme:'behaviour',group:'废弃埋点',domain:'更多',status:'已停用',rule:'更多弹窗曝光时上报',source:'主流程移出 · 人工废弃资产',fields:[]},
- {name:'payment',description:'支付成功订单数',theme:'commercial',group:'商业化',domain:'支付成功',status:'已接入后端',rule:'后端确认支付成功后上报；用于表示支付成功订单数，统计时按 order_id 去重',source:'后端 payment 上报样例 · 2026-08-05',trackingSource:'backend',fields:[['product','string','产品或包体标识；全小写开放值，当前已知 popdoll'],['order_id','string','业务订单 ID；支付成功订单数按该字段去重'],['state','string','支付状态；payment 事件固定为 paid'],['channel_product_id','string','渠道商品/SKU ID；已知 standard、cp_in_30、cp_in_100，允许新增档位'],['channel_price_id','string','渠道价格 ID；遵循 standard-subscribe-*、plus-subscribe-* 等价格系列命名'],['bill_reason','string','账单原因：create、cycle、restart、cycle_at_end_down'],['country','string','大写 ISO 3166-1 alpha-2 国家码；US、JP、CN 等'],['payment_id','string','支付单 ID；用于关联渠道交易和后续支付链路'],['subscription_id','string','订阅 ID；订阅场景必填，非订阅场景为 null'],['channel','string','支付渠道；当前固定为 google']],fieldMeta:{product:{source:'后端 payment 上报样例',type:'string',description:'产品或包体标识；矩阵包名全小写',example:'popdoll'},order_id:{source:'后端 payment 上报样例',type:'string',description:'业务订单 ID；用于去重统计支付成功订单数',example:'order_xxx'},state:{source:'后端 payment 上报样例',type:'string',required:true,nullable:false,description:'支付成功状态；payment 事件固定值',allowedValues:['paid'],example:'paid'},channel_product_id:{source:'后端 payment 上报样例',type:'string',description:'支付渠道侧商品/SKU ID；支持新增商品档位',example:'cp_in_30'},channel_price_id:{source:'后端 payment 上报样例',type:'string',description:'支付渠道侧价格 ID；用于区分等级、周期、地区或价格实验',example:'standard-subscribe-monthly'},bill_reason:{source:'后端 payment 上报样例',type:'string',description:'本次账单产生的业务原因',allowedValues:['create','cycle','restart','cycle_at_end_down'],example:'create'},country:{source:'后端 payment 上报样例',type:'string',description:'大写 ISO 3166-1 alpha-2 国家/地区代码',example:'US'},payment_id:{source:'后端 payment 上报样例',type:'string',description:'支付单 ID；用于关联支付渠道交易',example:'payment_xxx'},subscription_id:{source:'后端 payment 上报样例',type:'string',nullable:true,description:'订阅 ID；订阅场景必填，非订阅场景为 null',example:'subscription_xxx'},channel:{source:'后端 payment 上报样例',type:'string',required:true,nullable:false,description:'支付渠道；当前固定值',allowedValues:['google'],example:'google'}},governanceMetadata:{lifecycle:'active',lifecycleSource:'backend_payload_sample',contractNote:'指标含义为支付成功订单数，按 order_id 去重；state、bill_reason、channel 为闭合枚举；product、channel_product_id、channel_price_id、country 为开放值或命名模式；subscription_id 按订阅场景条件必填。其他字段必填性与可空性待后端正式契约确认'}},
+ {name:'chatbot_message_receive_server',description:'ChatBot 返回信息时长',theme:'chatbot',group:'AI 对话',domain:'对话过程',status:'已接入后端',rule:'服务端上报单次 AI 生成内容返回结果的时长',source:'原始 PRD · Chatbot 对话过程',trackingSource:'backend',fields:[['response_time','number','生成内容后返回信息的时长，单位秒，保留2位小数']],fieldMeta:{response_time:{source:'原始 PRD',type:'number',description:'单次 AI 生成内容返回结果的时长，单位秒，保留2位小数',example:1.25}},governanceMetadata:{lifecycle:'active',lifecycleSource:'prd',contractNote:'该 Action 是原始 PRD 已定义的服务端埋点，不是新增埋点。response_time 是其既有 Raw key；不与前端 chatbot_message_receive 的 chatbot_id 字段合并，也不推断 ChatBot ID 字段。'}},
+ {name:'payment',description:'支付成功订单数',theme:'commercial',group:'商业化',domain:'支付成功',status:'已接入后端',rule:'后端确认支付成功后上报；用于表示支付成功订单数，统计时按 order_id 去重',source:'后端 payment 上报样例 · 2026-08-05',trackingSource:'backend',analysisFilters:[{purpose:'渠道筛选',scope:'事件属性',field:'app_install_source_ad_channel',description:'使用 payment 事件字段 app_install_source_ad_channel 区分 Meta、Google 等安装广告渠道'}],fields:[['product','string','产品或包体标识；全小写开放值，当前已知 popdoll'],['order_id','string','业务订单 ID；支付成功订单数按该字段去重'],['state','string','支付状态；payment 事件固定为 paid'],['channel_product_id','string','渠道商品/SKU ID；已知 standard、cp_in_30、cp_in_100，允许新增档位'],['channel_price_id','string','渠道价格 ID；遵循 standard-subscribe-*、plus-subscribe-* 等价格系列命名'],['bill_reason','string','账单原因：create、cycle、restart、cycle_at_end_down'],['country','string','大写 ISO 3166-1 alpha-2 国家码；US、JP、CN 等'],['payment_id','string','支付单 ID；用于关联渠道交易和后续支付链路'],['subscription_id','string','订阅 ID；订阅场景必填，非订阅场景为 null'],['channel','string','支付渠道；当前固定为 google'],['app_install_source_ad_channel','string','用户安装归因广告渠道；Meta、Google 等开放值']],fieldMeta:{product:{source:'后端 payment 上报样例',type:'string',description:'产品或包体标识；矩阵包名全小写',example:'popdoll'},order_id:{source:'后端 payment 上报样例',type:'string',description:'业务订单 ID；用于去重统计支付成功订单数',example:'order_xxx'},state:{source:'后端 payment 上报样例',type:'string',required:true,nullable:false,description:'支付成功状态；payment 事件固定值',allowedValues:['paid'],example:'paid'},channel_product_id:{source:'后端 payment 上报样例',type:'string',description:'支付渠道侧商品/SKU ID；支持新增商品档位',example:'cp_in_30'},channel_price_id:{source:'后端 payment 上报样例',type:'string',description:'支付渠道侧价格 ID；用于区分等级、周期、地区或价格实验',example:'standard-subscribe-monthly'},bill_reason:{source:'后端 payment 上报样例',type:'string',description:'本次账单产生的业务原因',allowedValues:['create','cycle','restart','cycle_at_end_down'],example:'create'},country:{source:'后端 payment 上报样例',type:'string',description:'大写 ISO 3166-1 alpha-2 国家/地区代码',example:'US'},payment_id:{source:'后端 payment 上报样例',type:'string',description:'支付单 ID；用于关联支付渠道交易',example:'payment_xxx'},subscription_id:{source:'后端 payment 上报样例',type:'string',nullable:true,description:'订阅 ID；订阅场景必填，非订阅场景为 null',example:'subscription_xxx'},channel:{source:'后端 payment 上报样例',type:'string',required:true,nullable:false,description:'支付渠道；当前固定值',allowedValues:['google'],example:'google'},app_install_source_ad_channel:{source:'用户提供的分析字段截图',type:'string',description:'用户安装归因广告渠道；用于拆分支付成功订单',allowedValues:['meta','google'],example:'meta'}},governanceMetadata:{lifecycle:'active',lifecycleSource:'backend_payload_sample',contractNote:'指标含义为支付成功订单数，按 order_id 去重；payment 事件使用 app_install_source_ad_channel 进行安装广告渠道筛选；state、bill_reason、channel 为闭合枚举；product、channel_product_id、channel_price_id、country、app_install_source_ad_channel 为开放值或命名模式；subscription_id 按订阅场景条件必填。其他字段必填性与可空性待后端正式契约确认'}},
  {name:'userpath',description:'页面加载成功',theme:'behaviour',group:'主流程',domain:'登录注册',status:'已上线',rule:'站内所有页面加载成功时触发',source:'⭐️【A1】已上线',fields:[['isnew','bool','是否新用户'],['gpu','string','设备芯片信息'],['preurl','string','本次访问的上一个页面']]},
  {name:'login_button_click',description:'点击登录按钮',theme:'behaviour',group:'用户与账号',domain:'登录注册',status:'已上线',rule:'点击 Login 按钮时触发',source:'⭐️【A1】已上线',fields:[['source','string','登录入口'],['plan','string','本地存储套餐'],['originUrl','string','来源地址'],['firstenterurl','string','24小时内首次访问地址']]},
  {name:'registration_pop_up',description:'注册弹窗',theme:'behaviour',group:'用户与账号',domain:'登录注册',status:'已上线',rule:'注册弹窗关闭时触发',source:'⭐️【A1】已上线',fields:[['isregister','string','close / register'],['location','string','top / rate_button / optimize / pic_like']]},
@@ -2156,7 +2206,7 @@ function refreshGovernanceAssessments(){
 }
 refreshGovernanceAssessments();
 const IN_PROGRESS_STATUSES=new Set(['开发中','待开发','方案中','待确认']);
-const BACKEND_TRACKING_EVENTS=new Set(['subscribe_cancel','payment']);
+const BACKEND_TRACKING_EVENTS=new Set(['subscribe_cancel','payment','chatbot_message_receive_server']);
 const TRACKING_SOURCE_LABELS={frontend:'前端',backend:'后端',android:'Android 端',bigdata:'火山聚合'};
 
 function getTrackingSourceEvidence(event,assetClassification){
@@ -2234,7 +2284,7 @@ function isConfirmedBackendAsset(event){
 }
 
 function isProtectedAssetEvent(event){
-  return mainFlowEvents.includes(event)||volcanoAggregationAssets.includes(event)||androidNativeEvents.includes(event)||['subscribe_cancel','payment'].includes(event?.name)||isConfirmedBackendAsset(event)||isApprovedSessionAsset(event);
+  return mainFlowEvents.includes(event)||volcanoAggregationAssets.includes(event)||androidNativeEvents.includes(event)||['subscribe_cancel','payment','chatbot_message_receive_server'].includes(event?.name)||isConfirmedBackendAsset(event)||isApprovedSessionAsset(event);
 }
 
 function getActiveAssetEvents(){
@@ -4587,6 +4637,12 @@ function renderCommonContractReference(event){
   if(event.commonContractId!==ANDROID_COMMON_CONTRACT.id)return '';
   const canonical=event.canonicalActionProposal?`<div class="common-contract-warning"><span>Raw action</span><code>${escapeFieldHtml(event.name)}</code><span>Canonical proposal</span><code>${escapeFieldHtml(event.canonicalActionProposal)}</code><small>迁移策略：${escapeFieldHtml(event.migrationStrategy||'待选择')}；当前不改写 Raw action。</small></div>`:'';
   return `<details class="drawer-section drawer-disclosure common-contract-reference" open><summary><span>公共字段契约</span><small>${ANDROID_COMMON_CONTRACT.fields.length} 条路径 · ${escapeFieldHtml(ANDROID_COMMON_CONTRACT.label)}</small></summary><div class="drawer-disclosure-body"><div class="common-contract-meta"><div><span>契约 ID</span><code>${ANDROID_COMMON_CONTRACT.id}</code></div><div><span>版本</span><strong>${ANDROID_COMMON_CONTRACT.version}</strong></div><div><span>注入方式</span><strong>Android SDK 统一注入</strong></div></div><p>这些字段只作为公共契约引用，不计入上方事件独有字段。完整路径保留顶层信封与 properties 的实际位置。</p>${canonical}</div></details>`;
+}
+
+function renderAnalysisFilters(event){
+  const filters=Array.isArray(event.analysisFilters)?event.analysisFilters:[];
+  if(!filters.length)return '';
+  return `<section class="drawer-section analysis-filter-section"><div class="section-line"><h3>分析筛选维度</h3><span>${filters.length} 个</span></div><div class="analysis-filter-list">${filters.map(filter=>`<div class="analysis-filter-item"><span>${escapeFieldHtml(filter.purpose||'分析筛选')}</span><div><small>${escapeFieldHtml(filter.scope||'属性')}</small><code>${escapeFieldHtml(filter.field||'')}</code></div><p>${escapeFieldHtml(filter.description||'')}</p></div>`).join('')}</div></section>`;
 }
 
 function normalizeEventFields(event){
@@ -7474,7 +7530,7 @@ openDrawerV2=function openDrawerWithFieldGroups(event){
   const fieldContractNotice=wireContractCount>1?`<p class="field-contract-variant-note">以下为 ${wireContractCount} 套上报通道的最终字段并集，便于资产检索；单次上报的 key、必传与可空状态以“前端代码来源”中的独立 Wire Contract 为准。</p>`:'';
   document.getElementById('drawerAction').textContent=event.name;
   document.getElementById('drawerReportingLogic').textContent=reportingLogic.text;
-  document.getElementById('drawerContent').innerHTML=`${renderInterfaceEvidence(event)}<section class="drawer-section field-explorer-section"><div class="section-line field-explorer-head"><h3>事件独有字段</h3><label class="field-search">⌕<input id="drawerFieldSearch" type="search" placeholder="搜索字段" aria-label="搜索事件独有字段" /></label></div>${fieldContractNotice}${renderFieldExplorer(event)}</section><div class="drawer-secondary">${renderCommonContractReference(event)}${renderAggregationGuide(event)}<details class="drawer-section drawer-disclosure reporting-source-section"${reportingLogic.needsReview?' open':''}><summary><span>上报规则来源</span><small>${escapeFieldHtml(reportingLogic.behaviorLabel)}</small></summary><div class="drawer-disclosure-body"><p>${escapeFieldHtml(reportingLogic.evidenceText)}</p></div></details>${renderCodeEvidence(event)}${renderGovernanceAssessment(event)}${renderPayloadExample(event)}<details class="drawer-section drawer-disclosure"><summary><span>相似事件</span><small>${escapeFieldHtml(labels.similarLabel)}</small></summary><div class="drawer-disclosure-body"><div class="similar-list">${similar.map(item=>{const itemClassification=getCatalogViewClassification(item);const itemLogic=getEventReportingLogic(item,getCatalogClassification(item));const itemCollaboration=(itemClassification.collaborationTags||[]).length?` · 协作：${itemClassification.collaborationTags.join('、')}`:'';return `<button data-similar="${escapeFieldHtml(item.name)}"><strong class="similar-action-name">${escapeFieldHtml(item.name)}</strong><span class="similar-action-logic">${escapeFieldHtml(itemLogic.text)}</span><small>${escapeFieldHtml(itemClassification.businessDomain)} / ${escapeFieldHtml(itemClassification.businessModule)}${escapeFieldHtml(itemCollaboration)}</small></button>`;}).join('')||'<p class="code-evidence-empty">当前目录下暂无相似事件</p>'}</div></div></details><div class="source-note">来源：${escapeFieldHtml(event.source)} · Raw 分类：${escapeFieldHtml(event.group)} / ${escapeFieldHtml(event.domain)} · Theme：${escapeFieldHtml(event.theme)}</div></div>`;
+  document.getElementById('drawerContent').innerHTML=`${renderInterfaceEvidence(event)}<section class="drawer-section field-explorer-section"><div class="section-line field-explorer-head"><h3>事件独有字段</h3><label class="field-search">⌕<input id="drawerFieldSearch" type="search" placeholder="搜索字段" aria-label="搜索事件独有字段" /></label></div>${fieldContractNotice}${renderFieldExplorer(event)}</section><div class="drawer-secondary">${renderAnalysisFilters(event)}${renderCommonContractReference(event)}${renderAggregationGuide(event)}<details class="drawer-section drawer-disclosure reporting-source-section"${reportingLogic.needsReview?' open':''}><summary><span>上报规则来源</span><small>${escapeFieldHtml(reportingLogic.behaviorLabel)}</small></summary><div class="drawer-disclosure-body"><p>${escapeFieldHtml(reportingLogic.evidenceText)}</p></div></details>${renderCodeEvidence(event)}${renderGovernanceAssessment(event)}${renderPayloadExample(event)}<details class="drawer-section drawer-disclosure"><summary><span>相似事件</span><small>${escapeFieldHtml(labels.similarLabel)}</small></summary><div class="drawer-disclosure-body"><div class="similar-list">${similar.map(item=>{const itemClassification=getCatalogViewClassification(item);const itemLogic=getEventReportingLogic(item,getCatalogClassification(item));const itemCollaboration=(itemClassification.collaborationTags||[]).length?` · 协作：${itemClassification.collaborationTags.join('、')}`:'';return `<button data-similar="${escapeFieldHtml(item.name)}"><strong class="similar-action-name">${escapeFieldHtml(item.name)}</strong><span class="similar-action-logic">${escapeFieldHtml(itemLogic.text)}</span><small>${escapeFieldHtml(itemClassification.businessDomain)} / ${escapeFieldHtml(itemClassification.businessModule)}${escapeFieldHtml(itemCollaboration)}</small></button>`;}).join('')||'<p class="code-evidence-empty">当前目录下暂无相似事件</p>'}</div></div></details><div class="source-note">来源：${escapeFieldHtml(event.source)} · Raw 分类：${escapeFieldHtml(event.group)} / ${escapeFieldHtml(event.domain)} · Theme：${escapeFieldHtml(event.theme)}</div></div>`;
   document.getElementById('drawerContent').insertAdjacentHTML('afterbegin',renderAdminAssetToolbar(event));
   document.querySelectorAll('[data-similar]').forEach(button=>button.onclick=()=>openDrawerV2(events.find(item=>item.name===button.dataset.similar)));
   bindFieldExplorer();

@@ -153,6 +153,28 @@
         height: 190
       },
       source: '计算公式：下载去重人数 ÷ 打开去重人数。打开口径已确认：userpath 按 uniqueId 去重计数（COUNT DISTINCT）；下载事件与筛选条件待补充。'
+    },
+    {
+      id: 'ab-test-three-day-renewal-rate',
+      title: 'AB测试的三天续费率',
+      image: {
+        src: assetPath('definitions/ab-test-three-day-renewal-rate.png'),
+        alt: '火山分析 AB 测试的三天续费率配置截图',
+        width: 3254,
+        height: 898
+      },
+      source: '用户提供的火山分析配置截图'
+    },
+    {
+      id: 'package-paying-user-overlap',
+      title: '包体付费用户重复度',
+      image: {
+        src: assetPath('definitions/package-paying-user-overlap.png'),
+        alt: '火山分析包体付费用户重复度配置截图',
+        width: 1622,
+        height: 890
+      },
+      source: '用户提供的火山分析配置截图'
     }
   ]);
 })(typeof globalThis !== 'undefined' ? globalThis : window);

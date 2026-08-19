@@ -618,6 +618,10 @@
       text: 'AI 对话消息返回结果时上报',
       eventType: '结果'
     },
+    chatbot_message_receive_server: {
+      text: '服务端上报单次 AI 生成内容返回结果的耗时',
+      eventType: '结果'
+    },
     chatbot_send_photo_click: {
       text: '用户点击 AI 对话页“发送照片”入口、准备打开照片模板选择弹窗时上报',
       eventType: '点击'

@@ -5984,11 +5984,21 @@ body.aggregation-preview-open { overflow: hidden; }
 .account-identity strong,.account-identity small { display: block; }
 .account-identity strong { color: #2d3e48; font-size: 14px; }
 .account-identity small { margin-top: 3px; color: #73818a; font-size: 11px; }
+.account-profile-field { display: grid; gap: 6px; margin-top: 16px; color: #52626d; font-size: 11px; font-weight: 650; }
+.account-profile-field input { height: 38px; padding: 0 11px; color: #2d3e48; background: #fff; border: 1px solid #d7e0e5; border-radius: 5px; font: inherit; }
+.account-profile-field input:focus { border-color: #7793a4; outline: 2px solid rgba(84,116,137,.12); }
+.account-history { margin-top: 16px; padding-top: 14px; border-top: 1px solid #e7ecef; }
+.account-history > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.account-history > div strong { color: #40515c; font-size: 11px; }
+.account-history > div small { color: #89959d; font-size: 10px; }
+.account-history ol { max-height: 112px; margin: 9px 0 0; padding: 0; overflow: auto; list-style: none; }
+.account-history li { padding: 7px 0; color: #687781; border-top: 1px solid #f0f3f5; font-size: 10px; line-height: 1.45; }
+.account-history li:first-child { border-top: 0; }
 .account-signed-in p,.account-feedback { color: #71808a; font-size: 11px; line-height: 1.6; }
 .account-feedback { min-height: 18px; margin: 8px 22px 0; }
 .account-feedback.is-error { color: #b44b47; }
 .account-feedback.is-success { color: #2c7856; }
-.account-form footer { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; padding: 16px 22px 20px; }
+.account-form footer { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 8px; padding: 16px 22px 20px; }
 .sidebar-collapsed .nav-item[data-view="intake"],
 .sidebar-collapsed .nav-item[data-view="catalog"] { margin-top: 12px; }
 
@@ -6284,3 +6294,4 @@ body.aggregation-preview-open { overflow: hidden; }
   .global-topbar::before,
   .global-topbar::after { display: none; }
 }
+.analysis-filter-list{display:grid;gap:8px;margin-top:10px}.analysis-filter-item{display:grid;grid-template-columns:96px minmax(180px,.65fr) 1fr;align-items:center;gap:12px;padding:11px 12px;border:1px solid #dce3ec;background:#f8fafc;border-radius:6px}.analysis-filter-item>span{font-size:12px;font-weight:700;color:#2563eb}.analysis-filter-item>div{display:flex;align-items:center;gap:7px;min-width:0}.analysis-filter-item small{color:#64748b;white-space:nowrap}.analysis-filter-item code{font-weight:700;color:#172033}.analysis-filter-item p{margin:0;color:#4b5563;font-size:12px;line-height:1.5}@media(max-width:720px){.analysis-filter-item{grid-template-columns:1fr}.analysis-filter-item>span{font-size:11px}}
