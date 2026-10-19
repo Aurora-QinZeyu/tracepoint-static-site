@@ -37,3 +37,12 @@
 ## 统一发送层复核
 
 base/tracker.ts:36—54 先展开 TrackPoint，再注入 properties.app_version/device_type、用户信息及其他上下文。因此两个性能事件调用处 GPU device_type 不会作为最终同名值发送。已撤回两项最终冲突结论，更新台账；当前代码差异标签为 9 项。getDevice 具体取值由 utils/tracker/baidu.ts 决定。
+
+## 2026-10-19 补充确认：剩余项的具体范围
+
+- 107 处类型覆盖中，16 处为 bool → boolean 同义类型；其余 91 处涉及 unknown 推导或混合类型收窄/扩展，仍需逐字段补充依据，不计为已确认错误。
+- 加载平台实际资产与字段生成函数，覆盖 442 个 action、462 份通道契约、1,334 个契约字段：生成示例未发现 string/number/boolean/array 基础类型冲突。这是生成器检查，不代表示例业务取值、发送前转换或页面最终 payload 已全部通过。
+- 442 个 action 均有工作线与二级分组，无工作线待归类项；其中 336 项沿用资产域映射，76 项为人工整理，26 项商业契约映射，1 项跨域、3 项 review 来源。存在分组不等于已逐项确认业务归属。
+- 可复查数据：analytics-display-check.json；执行脚本：check-analytics-display.cjs。
+
+结论：仍需完成类型依据、实际分通道示例字段及业务归属的逐项对照。上述结果不表示前端存在上报故障，也不作为全量展示验收通过。
