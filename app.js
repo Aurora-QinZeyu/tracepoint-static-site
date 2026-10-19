@@ -989,7 +989,7 @@ const REVIEWED_FIELD_SEMANTICS={
   'chatbot_message_send.chatbot_id':{meaning:'接收本次用户消息的 Chatbot 唯一 ID。'},
   'chatbot_message_send.persona_id':{meaning:'本次对话所使用的人设 ID；没有独立人设时为空。'},
   'chatbot_message_send.persona_type':{meaning:'本次对话所使用的人设类型；没有独立人设时为空。'},
-  'chatbot_message_send.is_success':{meaning:'标记本次用户消息是否成功提交给 Chatbot 服务。',valueMeaningSource:'frontend_code',values:{true:'消息提交成功',false:'消息提交失败'}},
+  'chatbot_message_send.is_success':{meaning:'按发送分支解释：普通聊天在 Socket ACK 后以 code===0 且无 errorCode 判断；custom_image 在生成请求前固定发送 true，不代表生成成功。Socket 超时可能没有该事件。',valueMeaningSource:'frontend_code',values:{true:'普通聊天 ACK 成功；或 custom_image 请求前固定值',false:'普通聊天 ACK 返回业务失败'}},
   'chatbot_message_send.is_goon':{meaning:'标记本次发送是否由用户点击“继续说”发起。',valueMeaningSource:'frontend_code',values:{true:'继续说请求',false:'普通消息请求'}},
   'chatbot_message_send.task_type':{meaning:'本次消息触发的 Chatbot 任务类型。',valueMeaningSource:'frontend_code',values:{chat:'普通文本对话',custom_image:'Chatbot 自定义图片生成'}},
   'chatbot_message_send.bond_level':{meaning:'发送本次消息时，用户与该 Chatbot 的当前亲密度等级。前端固定支持 Lv.1–Lv.6。',valueMeaningSource:'frontend_code',values:CHATBOT_BOND_LEVEL_MEANINGS},
@@ -4223,9 +4223,8 @@ function renderSemanticReviewProgress(){
   const audit=globalThis.SemanticReviewData;
   if(!audit)return '';
   const reviews=Object.values(audit.reviews||{});
-  const countStatus=status=>reviews.filter(review=>review.status===status).length;
-  const accepted=reviews.filter(review=>review.acceptanceComplete===true).length;
-  return `<article class="version-record"><div class="version-record-meta"><span>核查日期：${escapeFieldHtml(audit.date)}</span><code>前端 ${escapeFieldHtml(audit.baseline.slice(0,10))}</code></div><h3>逐组源码核查 · 进行中</h3><p>共 ${audit.total} 个 action、${audit.groups} 组；已记录初核结论 ${audit.reviewed} 项，尚无初核记录 ${audit.pending} 项。完整验收仍在进行，逐项限制见详情。</p><table class="version-diff-table"><tbody><tr><th>已修正展示</th><td>${countStatus('已修正')} 项</td></tr><tr><th>确认代码存在差异</th><td>${countStatus('确认代码存在差异')} 项</td></tr><tr><th>证据不足</th><td>${countStatus('证据不足')} 项</td></tr><tr><th>完整验收通过</th><td>${accepted} 项</td></tr></tbody></table><p>自动收集源码不计为语义核实通过；当前未完成全部核查，也未进行生产上报验证。</p><p><a href="audits/semantic-batches.md" target="_blank" rel="noreferrer">查看逐组结论与剩余限制</a> · <a href="audits/semantic-review-progress.md" target="_blank" rel="noreferrer">修正汇总与验证结果</a></p></article>`;
+  const codeDifferences=reviews.filter(review=>review.status==='确认代码存在差异').length;
+  return `<article class="version-record"><div class="version-record-meta"><span>核对日期：${escapeFieldHtml(audit.date)}</span><code>前端 ${escapeFieldHtml(audit.baseline.slice(0,10))}</code></div><h3>数分展示与代码口径核对</h3><p>目标：平台展示的 action、字段、类型、触发说明与示例参数如实反映前端代码；不包含生产送达验证或截图验收。</p><table class="version-diff-table"><tbody><tr><th>代码清单</th><td>${audit.total} 个 action · ${audit.groups} 组</td></tr><tr><th>逐项初核记录</th><td>${audit.reviewed} 项</td></tr><tr><th>源码分支差异</th><td>${codeDifferences} 项；作为代码现状说明，不等同平台错误</td></tr><tr><th>本次展示修正</th><td>成功口径、来源覆盖、缺省值、列表曝光与异常类型说明</td></tr><tr><th>剩余展示核对</th><td>旧人工类型覆盖、分通道示例及分组仍在核对，尚未全量通过</td></tr></tbody></table><p>原“证据不足”包含截图和运行验证等范围，不能当作展示错误数量；442 项初核也不等于全部展示核对通过。</p><p><a href="audits/analytics-display-review.md" target="_blank" rel="noreferrer">查看数分展示修正记录</a> · <a href="audits/semantic-batches.md" target="_blank" rel="noreferrer">查看逐项源码记录</a></p></article>`;
 }
 
 function renderSemanticReview(event){
@@ -4399,8 +4398,8 @@ const EVENT_FIELD_SEMANTICS={
   'app_tab.tab':{meaning:'legacy 调用入口传入的目标内容页签；转换后写入最终字段 presentation_mode，不应作为独立业务字段重复上报。'},
   'app_tab.currenttab':{meaning:'legacy 调用入口传入的切换前内容页签；转换后写入最终字段 current_tab，不应作为独立业务字段重复上报。'},
   'pic_visit.origin':{meaning:'用户进入图片详情前的业务来源，读取本地 PIC_ORIGIN；未记录来源时默认为 share。',valueMeaningSource:'frontend_code',values:{share:'未记录其他来源时按分享链路处理'}},
-  'pic_visit.current_tab':{meaning:'用户进入图片详情前所在的内容 Tab。当前 legacy 调用与 origin 读取同一个 PIC_ORIGIN 值，字段口径是否应拆分需业务确认。'},
-  'pic_visit.searchword':{meaning:'进入图片详情时关联的搜索关键词，由 legacy 转换从当前搜索上下文写入；非搜索场景可为空。'},
+  'pic_visit.current_tab':{meaning:'最终 legacy 转换读取事件追踪器的全局 origin，并覆盖调用入口传入的 PIC_ORIGIN；不保证与本事件 origin 相同。'},
+  'pic_visit.searchword':{meaning:'legacy 转换读取本地 SEARCH_KEYWORD；缺失或空值发送字符串 none，不表示当前一定在搜索场景。',example:'none'},
   'pic_visit.image_id':{meaning:'被访问图片的图片唯一 ID，直接取 gallery 数据的 data.imageId。'},
   'pic_visit.pic_id':{meaning:'被访问图片的历史图片 ID 字段；当前调用与 image_id 同样取 data.imageId，两个 Raw 字段暂时并行保留。'},
   'sortmode_switch.sortmode_mode':{meaning:'用户切换后的目标排序模式。legacy 转换将调用参数 sort 写入该最终上报字段。'},
@@ -4415,7 +4414,7 @@ const EVENT_FIELD_SEMANTICS={
   'search.result_num':{meaning:'未被当前产品路径调用的 legacy 搜索字段；保留实现仅在 current_tab=app 时传入 App 结果数，其他页签传 0。'},
   'search_history_delete.delete_num':{meaning:'用户本次删除搜索历史的范围。字段名虽然包含 num，实际记录删除类型而不是数量。',valueMeaningSource:'frontend_code',values:{delete_all:'清空全部搜索历史',delete_one:'删除单条搜索历史'}},
   'query_exposure.search_method':{meaning:'本批搜索词在页面曝光时所属的推荐或历史来源。',valueMeaningSource:'frontend_code',values:{input:'用户手动输入搜索内容',individuation:'个性化推荐搜索词',history:'历史搜索词',top_search:'顶部热搜词',hot_today:'今日热门搜索词'}},
-  'query_exposure.search_content':{meaning:'本次进入可视区域的一组搜索词，按 string[] 数组批量上报；内容来自热搜、搜索历史或个性化推荐词列表。'},
+  'query_exposure.search_content':{meaning:'本次列表 effect 读取的一组搜索词，按 string[] 数组批量上报；热搜和历史需非空，个性推荐还需结束 loading，不逐词检测可视区域。'},
   'cold_start_click.app_source':{meaning:'用户在冷启动推荐弹窗中点击推荐 App 时，标识该推荐所属的业务来源。当前前端调用固定上报 onboarding_old。',valueMeaningSource:'frontend_code',values:{onboarding_old:'旧版新用户冷启动推荐流程'}},
   'cold_start_click.commend_label':{meaning:'用户点击的冷启动推荐 App 对应的推荐标签，直接读取当前推荐资源的 source；该值由推荐数据动态返回，前端未限制固定枚举。'},
   'push_button_click.locaiton':{meaning:'用户点击通知权限开启按钮时所在的业务入口。Raw key 为代码现状中的 locaiton 拼写，本次仅补充说明，不自动改写为 location。',valueMeaningSource:'frontend_code',values:{check_in_page:'签到页通知权限入口的保留值；对应组件当前没有挂载入口',view_later:'“稍后查看”引导弹窗中的通知权限开启入口'}},
@@ -4473,7 +4472,7 @@ const EVENT_FIELD_SEMANTICS={
   'app_exposure_direct.exposure_list':{meaning:'本次批量曝光的滤镜或 App 列表。新版每项包含 app_id、trace_info、ability_name、user_scene，并可携带 app_source 和 recommendAppId；legacy 链路还可携带 appid、sort 和 commend_label。'},
   'app_exposure_direct.search_content':{meaning:'触发当前滤镜曝光时关联的搜索内容，来自当前保存的搜索上下文；非搜索场景可为空。'},
   'app_exposure_direct.search_method':{meaning:'触发当前搜索的入口或方式。',valueMeaningSource:'frontend_code',values:{input:'用户手动输入搜索内容',individuation:'点击个性化搜索推荐词',history:'点击历史搜索词',top_search:'点击顶部热搜词',hot_today:'今日热门列表场景'}},
-  'app_exposure_direct.location':{meaning:'当前滤镜或 App 曝光所属的业务场景，不表示物理坐标。',valueMeaningSource:'frontend_code',values:{creator:'创作者场景',profile:'个人主页场景',search_result:'搜索结果场景'}},
+  'app_exposure_direct.location':{meaning:'普通曝光辅助器传入业务位置字符串；autoExposure sender 未声明 location，实际引用浏览器 Location 对象。该自动路径不能按页面来源字符串统计。',valueMeaningSource:'frontend_code',valueMode:'open',values:{creator:'创作者场景',profile:'个人主页场景',search_result:'搜索结果场景'},reviewStatus:'needs_review',reviewLabel:'代码分支存在对象／字符串差异'},
   'app_exposure_direct.location1':{meaning:'标识当前曝光来自 onboarding 引导场景。',valueMeaningSource:'frontend_code',values:{onboarding:'新用户 onboarding 引导流程'}},
   'app_exposure_direct.tag_id':{meaning:'当前曝光场景关联的标签 ID，根据 basePage、location 或 origin 通过 getTagId 获取。'},
   'app_exposure_direct.type':{meaning:'曝光内容的特殊类型标识；当前契约仅预留 GENERATE_VIDEO，未在已解析调用点中发现顶层字段赋值。'},
@@ -4509,6 +4508,18 @@ const EVENT_FIELD_SEMANTICS={
   'register.method':{meaning:'注册事件携带的注册方式；当前前端仅通过通用参数转发，代码未限制具体枚举。',example:'example_value'}
 };
 assignUserPlatformFieldSemantics(EVENT_FIELD_SEMANTICS);
+// Source-reviewed analytics explanations; Raw names and contracts remain unchanged.
+Object.assign(EVENT_FIELD_SEMANTICS,{
+  'app_performance.device_type':{meaning:'统一发送层在展开调用参数后使用 getDevice() 覆盖同名 GPU 值；最终为公共端类型，不作为独立业务属性。'},
+  'onboarding_performance.device_type':{meaning:'调用处 GPU 值被统一发送层 getDevice() 覆盖；最终为公共端类型，不代表 GPU。'},
+  'chatbot_restart_popup_click.is_success':{meaning:'确认按钮在调用重启接口前发送 true；取消发送 false。它区分用户选择，不表示重启接口结果。',valueMeaningSource:'frontend_code',values:{true:'确认重启（请求前）',false:'取消重启'},example:true},
+  'pay_order_create_result.status':{meaning:'openOrder 返回后发送 success；同一 try 内后续 Native 或支付回调异常可再发 failed。同 attempt_id 可能先成功再失败，不作为支付成功率。',valueMeaningSource:'frontend_code',values:{success:'建单返回，尚未完成支付',failed:'建单或后续流程抛错'},example:'success'},
+  'pay_order_create_result.failure_reason':{meaning:'失败分支取 error.message || error.code || order_create_failed；code 可能为数字，保留实际代码差异。',example:'order_create_failed'},
+  'filter_result_exposure.option_value':{meaning:'应用筛选时结果数大于零且所选条件名称非空才发送，取所选条件名；不表示逐结果可见。'},
+  'chatbot_view_photo_click.chatbot_type':{meaning:'读取全局聊天上下文，缺失时实际传空字符串；定义只列 pgc/ugc/undefined，与此回落值不同。',valueMeaningSource:'frontend_code',values:{pgc:'系统角色',ugc:'用户创建角色','':'上下文类型缺失时的实际回落值'},example:'pgc'},
+  'video_upload_success.failure_reason':{meaning:'失败时取错误 code、message 或错误本身；可能是字符串、数字或对象。还包括上传前登录、会员及生成权限拦截，不仅是网络上传异常。',example:'not_login',valueMeaningSource:'frontend_code',openValues:VIDEO_UPLOAD_SUCCESS_FAILURE_OBSERVED_MEANINGS}
+});
+
 const NORMALIZED_EVENT_FIELD_SEMANTICS=Object.fromEntries(
   Object.entries(EVENT_FIELD_SEMANTICS).map(([qualifiedName,semantic])=>[qualifiedName.toLowerCase(),semantic])
 );
@@ -4636,10 +4647,10 @@ function buildGeneratedPayload(event,properties){
 function getEventPayloadExample(event){
   if(EVENT_PAYLOAD_EXAMPLES[event.name])return {payload:EVENT_PAYLOAD_EXAMPLES[event.name],kind:'用户提供的完整上报样例'};
   const properties={};
-  normalizeEventFields(event).forEach(field=>{
-    const example=getFieldExample(field);
-    if(example==='example_value')return;
-    properties[field.rawName]=example==='false'?false:example==='20'?20:example;
+  const fields=normalizeEventFields(event);
+  const normalizedFields=new Map(fields.map(field=>[field.rawName,field]));
+  fields.forEach(field=>{
+    properties[field.rawName]=getWireContractFieldExample(event,{nameRaw:field.rawName,typeObserved:field.type||field.canonicalType},normalizedFields);
   });
   const generated=buildGeneratedPayload(event,properties);
   return {...generated,kind:event.commonContractId===ANDROID_COMMON_CONTRACT.id?'按 Android Native v1 契约生成的模拟样例':'按当前契约生成的模拟样例'};
@@ -4669,9 +4680,22 @@ function getWireContractFieldExample(event,contractField,normalizedFields){
     else if(/(^|_)(app_?id|content_?id|user_?id|generate_?id|template_?id)$/.test(name.toLowerCase()))example='2066475647017820162';
     else example=`example_${name||'value'}`;
   }
-  if(typeof example==='string'&&/number|int|long|float|double/.test(observedType)&&/^-?\d+(?:\.\d+)?$/.test(example))return Number(example);
-  if(example==='false'&&/bool/.test(observedType))return false;
-  if(example==='true'&&/bool/.test(observedType))return true;
+  // Keep illustrative JSON values in the observed type; text such as "false"
+  // must remain text for a string field, and arrays must not be JSON strings.
+  const pureType=observedType.replace(/\s/g,'');
+  if(/^(?:array|.*\[\]|array<.*>)$/.test(pureType)){
+    if(Array.isArray(example))return example;
+    if(typeof example==='string'){
+      try{const parsed=JSON.parse(example);if(Array.isArray(parsed))return parsed;}catch{}
+    }
+    return [];
+  }
+  if(/^(?:number|int|integer|long|float|double)$/.test(pureType)){
+    const parsed=Number(example);
+    return typeof example==='number'||(typeof example==='string'&&example.trim()!==''&&Number.isFinite(parsed))?parsed:20;
+  }
+  if(/^(?:bool|boolean)$/.test(pureType))return example===true||example==='true';
+  if(pureType==='string')return typeof example==='string'?example:String(example);
   return example;
 }
 

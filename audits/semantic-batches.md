@@ -2848,12 +2848,12 @@ SoundToggleButton stopPropagation后newMuted=!isMuted，先onToggle再发送turn
 - makeTracker：packages/shared/handler/event/impl/action.ts:892
 - Track：src/mobile/views/AppDetail/components/SoundToggleButton/index.tsx:32
 
-### app_performance · 确认代码存在差异
+### app_performance · 已修正
 
-useMonitorAppPerformance监听productsLoaded，buildAppPerformanceInfo非null后每hook生命周期发一次。依赖Native三个非零时间，差值单位毫秒；冷启动=finish-webViewCreate，HTML=loadHtmlFinish-coldStartFinish，列表=当前时间-loadHtmlFinish，总计=当前-webViewCreate；另展开timeline及过滤过的Native设备性能。 发送前device_type=getGpuInfo()，与平台公共字段device_type表示APP/MOBILE/PC的含义冲突；当前契约排除了该公共同名字段，需保留命名空间/路径证据并另行提正式契约选择，不能直接自动改key。
+useMonitorAppPerformance监听productsLoaded，buildAppPerformanceInfo非null后每hook生命周期发一次。依赖Native三个非零时间，差值单位毫秒；冷启动=finish-webViewCreate，HTML=loadHtmlFinish-coldStartFinish，列表=当前时间-loadHtmlFinish，总计=当前-webViewCreate；另展开timeline及过滤过的Native设备性能。 最终发送链已追踪：base/tracker.ts在展开TrackPoint之后写properties.device_type=getDevice()，因此调用处getGpuInfo()同名值被覆盖；最终为公共端类型，不是GPU。
 
-修正：无。
-限制：productsLoaded所有分发、timeline动态字段、Native时间类型与时钟基准待核实；静态核查，不代表生产上报验证；最终契约、分组及截图尚未全部验收；公共device_type与性能GPU同名语义冲突待契约决策。
+修正：纠正此前GPU最终上报冲突的误判，注明统一发送层覆盖；不将该公共字段重复列入业务契约。
+限制：productsLoaded所有分发、timeline动态字段、Native时间类型与时钟基准待核实；静态核查，不代表生产上报验证；最终契约、分组及截图尚未全部验收。
 
 - makeTracker：packages/shared/handler/event/impl/visit.ts:75
 - Track：src/mobile/hooks/useMonitorAppPerformance.ts:21
@@ -2924,12 +2924,12 @@ Popup依赖回调trackMarketingPopupLockShow中lockTimestamp真值才发送，lo
 
 ## 第 53 组 · 本组有逐项初核结论，剩余限制见各项
 
-### onboarding_performance · 确认代码存在差异
+### onboarding_performance · 已修正
 
-欢迎页挂载effect结束openToMount/loginToOnboarding阶段，Native性能信息可用时发送一次。onboarding_load_time=挂载当前时间-loadHtmlFinishTime，total_onboarding_time=当前-webViewCreateTime，毫秒；再展开startup阶段与设备性能。不是页面图片/视频加载完成。 发送前device_type=getGpuInfo()，与平台公共字段device_type表示APP/MOBILE/PC的含义冲突；当前契约排除了该公共同名字段，需保留命名空间/路径证据并另行提正式契约选择，不能直接自动改key。
+欢迎页挂载effect结束openToMount/loginToOnboarding阶段，Native性能信息可用时发送一次。onboarding_load_time=挂载当前时间-loadHtmlFinishTime，total_onboarding_time=当前-webViewCreateTime，毫秒；再展开startup阶段与设备性能。不是页面图片/视频加载完成。 最终发送链已追踪：base/tracker.ts在展开TrackPoint之后写properties.device_type=getDevice()，因此调用处getGpuInfo()同名值被覆盖；最终为公共端类型，不是GPU。
 
-修正：补充计时边界和毫秒单位，替换尚待确定的展示解释。
-限制：全部阶段计时辅助链、Native时钟与缺失数据待运行核实；静态核查，不代表生产上报验证；最终契约、分组及截图尚未全部验收；公共device_type与性能GPU同名语义冲突待契约决策。
+修正：纠正此前GPU最终上报冲突的误判，注明统一发送层覆盖；不将该公共字段重复列入业务契约。
+限制：全部阶段计时辅助链、Native时钟与缺失数据待运行核实；静态核查，不代表生产上报验证；最终契约、分组及截图尚未全部验收。
 
 - makeTracker：packages/shared/handler/event/impl/visit.ts:114
 - Track：src/mobile/views/Onborading/WelcomePage/index.tsx:130
