@@ -2063,6 +2063,19 @@ const events=[
 ];
 globalThis.__trackingAssets=events;
 const frontendTrackingManifest=globalThis.FrontendTrackingManifest||null;
+// Restore only missing archive assets; never overwrite an existing historical asset.
+const historicalTrackingManifest=globalThis.HistoricalTrackingAssets;
+if(globalThis.CodeAssetSync&&historicalTrackingManifest){
+  const missingHistorical=historicalTrackingManifest.events.filter(snapshot=>!events.some(event=>event.name===snapshot.name));
+  globalThis.CodeAssetSync.sync({...historicalTrackingManifest,events:missingHistorical},events);
+  missingHistorical.forEach(snapshot=>{
+    const asset=events.find(event=>event.name===snapshot.name);
+    asset.status='已停用';
+    asset.group='废弃埋点';
+    asset.rule='历史扫描快照；当前前端 9f3e4c77d4 未检出，保留字段与历史证据用于追溯';
+    asset.historicalCodeEvidence=true;
+  });
+}
 const codeAssetSummary=globalThis.CodeAssetSync&&frontendTrackingManifest
   ?globalThis.CodeAssetSync.sync(frontendTrackingManifest,events)
   :null;
@@ -2121,7 +2134,12 @@ Object.entries(VERIFIED_WIRE_CONTRACT_CORRECTIONS).forEach(([action,correction])
       const contract=contracts.find(item=>item.namespace===namespace);
       if(!contract)return;
       const existingByName=new Map((contract.fields||[]).map(field=>[field.nameRaw,field]));
-      contract.fields=(fields||[]).map(field=>({...existingByName.get(field.nameRaw),...field}));
+      const reviewedNames=new Set((fields||[]).map(field=>field.nameRaw));
+      // Keep newly scanned wire fields that the earlier review did not cover.
+      contract.fields=[
+        ...(fields||[]).map(field=>({...existingByName.get(field.nameRaw),...field})),
+        ...(contract.fields||[]).filter(field=>!reviewedNames.has(field.nameRaw))
+      ];
     });
     Object.entries(correctedCoPresentGroups).forEach(([namespace,groups])=>{
       const contract=contracts.find(item=>item.namespace===namespace);
@@ -2283,16 +2301,18 @@ function isConfirmedBackendAsset(event){
   return event?.trackingSource==='backend'&&event?.governanceMetadata?.lifecycle==='active';
 }
 
+const REMOVED_FROM_ACTIVE_ASSETS=new Set(['cold_start_click','cold_start_popup','remix_guide_close_click']);
+
 function isProtectedAssetEvent(event){
   return mainFlowEvents.includes(event)||volcanoAggregationAssets.includes(event)||androidNativeEvents.includes(event)||['subscribe_cancel','payment','chatbot_message_receive_server'].includes(event?.name)||isConfirmedBackendAsset(event)||isApprovedSessionAsset(event);
 }
 
 function getActiveAssetEvents(){
-  return events.filter(event=>hasFrontendCallSite(event)||isProtectedAssetEvent(event));
+  return events.filter(event=>!REMOVED_FROM_ACTIVE_ASSETS.has(event?.name)&&(hasFrontendCallSite(event)||isProtectedAssetEvent(event)));
 }
 
 function getDeprecatedCandidateEvents(){
-  return events.filter(event=>!hasFrontendCallSite(event)&&!isProtectedAssetEvent(event));
+  return events.filter(event=>REMOVED_FROM_ACTIVE_ASSETS.has(event?.name)||(!hasFrontendCallSite(event)&&!isProtectedAssetEvent(event)));
 }
 
 function calculateAssetStats(){
@@ -4179,10 +4199,12 @@ function bindDefinitionLibraryTabs(){
   });
 }
 const switchViewWithoutWorkflow=switchView;
+viewCopy.updates=['版本更新','记录前端代码同步、埋点资产变化和治理平台目录更新。'];
 switchView=function switchViewWithWorkflow(view){
   switchViewWithoutWorkflow(view);
+  document.getElementById('releaseNote')?.setAttribute('hidden','');
   configurePrimaryAction(view);
-  const isAssetManagementView=['catalog','deprecated','locations','commonFields','definitions'].includes(view);
+  const isAssetManagementView=['catalog','deprecated','locations','commonFields','definitions','updates'].includes(view);
   const hideHeaderActions=isAssetManagementView||['aiAssistant','intake','review','debug','acceptance','issues'].includes(view);
   document.querySelector('.head-actions')?.classList.toggle('view-hidden',hideHeaderActions);
   document.getElementById('page-subtitle')?.classList.toggle('view-hidden',isAssetManagementView||view==='intake');
@@ -4194,7 +4216,33 @@ switchView=function switchViewWithWorkflow(view){
     renderEngineeringHandoff();
   }else if(view==='acceptance')renderAcceptanceV2();
   else if(view==='issues')renderIssueHandling();
+  else if(view==='updates')renderVersionUpdates();
 };
+
+function renderSemanticReviewProgress(){
+  const audit=globalThis.SemanticReviewData;
+  if(!audit)return '';
+  const reviews=Object.values(audit.reviews||{});
+  const countStatus=status=>reviews.filter(review=>review.status===status).length;
+  const accepted=reviews.filter(review=>review.acceptanceComplete===true).length;
+  return `<article class="version-record"><div class="version-record-meta"><span>核查日期：${escapeFieldHtml(audit.date)}</span><code>前端 ${escapeFieldHtml(audit.baseline.slice(0,10))}</code></div><h3>逐组源码核查 · 进行中</h3><p>共 ${audit.total} 个 action、${audit.groups} 组；已记录初核结论 ${audit.reviewed} 项，尚无初核记录 ${audit.pending} 项。完整验收仍在进行，逐项限制见详情。</p><table class="version-diff-table"><tbody><tr><th>已修正展示</th><td>${countStatus('已修正')} 项</td></tr><tr><th>确认代码存在差异</th><td>${countStatus('确认代码存在差异')} 项</td></tr><tr><th>证据不足</th><td>${countStatus('证据不足')} 项</td></tr><tr><th>完整验收通过</th><td>${accepted} 项</td></tr></tbody></table><p>自动收集源码不计为语义核实通过；当前未完成全部核查，也未进行生产上报验证。</p><p><a href="audits/semantic-batches.md" target="_blank" rel="noreferrer">查看逐组结论与剩余限制</a> · <a href="audits/semantic-review-progress.md" target="_blank" rel="noreferrer">修正汇总与验证结果</a></p></article>`;
+}
+
+function renderSemanticReview(event){
+  const audit=globalThis.SemanticReviewData;
+  if(!audit)return '';
+  const review=audit.reviews[event.name];
+  if(!review)return `<details class="drawer-section drawer-disclosure"><summary><span>逐项源码核查</span><small>待逐项核实</small></summary><div class="drawer-disclosure-body"><p>本轮尚未完成该 action 的语义核查，扫描结果不等于业务核实通过。</p></div></details>`;
+  return `<details class="drawer-section drawer-disclosure"><summary><span>逐项源码核查</span><small>${escapeFieldHtml(review.status)}</small></summary><div class="drawer-disclosure-body"><p>${escapeFieldHtml(review.note)}</p><p>平台修正：${escapeFieldHtml(review.correction)}</p><p>限制：${escapeFieldHtml(review.limitations.join('；'))}</p><p>基准：${escapeFieldHtml(review.baseline)} · ${escapeFieldHtml(review.reviewedAt)}</p><ul>${review.evidence.map(ref=>`<li><code>${escapeFieldHtml(ref.file)}:${ref.line}</code></li>`).join('')}</ul></div></details>`;
+}
+
+function renderVersionUpdates(){
+  const special=document.getElementById('specialView');
+  special.classList.add('show');
+  special.innerHTML=`<section class="version-page"><div class="version-page-head"><div><span class="eyebrow">更新记录</span><h2>版本更新</h2><p>记录埋点代码同步和治理资产变化，后续更新按日期追加。</p></div><span class="version-current">2026-10-19</span></div><article class="version-record version-record-current"><div class="version-record-meta"><span>更新日期：2026-10-19</span><code>平台 22b0950c33 → 前端 9f3e4c77d4</code></div><h3>前端埋点代码同步核对</h3><p>比较基准：平台 <code>22b0950c33</code> → 本地前端 <code>9f3e4c77d4</code>。</p><table class="version-diff-table"><tbody><tr><th>扫描到的 action</th><td>370 → 442</td></tr><tr><th>新增 action</th><td>75 个</td></tr><tr><th>旧 action 在新扫描中未检出</th><td>3 个</td></tr><tr><th>已有 action 存在字段差异</th><td>44 个</td></tr><tr><th>共有 action 的字段变化</th><td>新增 54、移除 8、修改 65</td></tr></tbody></table><h4>具体变化</h4><ul class="version-change-list"><li><code>generate_success</code>：新增 <code>chatbot_type</code>、<code>tag_name</code>、<code>option_value</code>、<code>app_category</code>；<code>chatbot_id</code> 类型发生变化。</li><li><code>generate_intention</code>：新增 <code>short_id</code>、<code>tag_name</code>、<code>option_value</code> 等字段。</li><li>未检出：<code>cold_start_click</code>、<code>cold_start_popup</code>、<code>remix_guide_close_click</code>。</li><li>新增埋点主要涉及 Chatbot、筛选搜索、支付校验和新手引导。</li></ul><p><a href="audits/frontend-current-review.md" target="_blank" rel="noreferrer">查看完整逐项差异及源码位置报告</a></p><div class="version-note">说明：后续整理时按日期新增一条版本记录，并同步更新比较基准、统计结果和代表性变化。</div></article></section>`;
+  special.querySelector('.version-page-head')?.remove();
+  special.querySelector('.version-page')?.insertAdjacentHTML('afterbegin',renderSemanticReviewProgress());
+}
 
 // Field explorer: keep the asset table compact and move full definitions into grouped detail.
 const FIELD_NAME_ALIASES={
@@ -4848,7 +4896,8 @@ const CATALOG_WORKSTREAMS=[
   {name:'创作工具',description:'模板、生成、编辑、Remix、素材和结果。'},
   {name:'用户与平台',description:'登录、账号、社区、用户路径、权限、性能和异常。'}
 ];
-const catalogSelection={workstream:'',workstreamModule:'',journeyKey:'main_flow'};
+// Start with the complete asset catalog; the main-flow tree remains an explicit filter.
+const catalogSelection={workstream:'',workstreamModule:'',journeyKey:''};
 const catalogExpandedWorkstreams=new Set(CATALOG_WORKSTREAMS.map(item=>item.name));
 const catalogTaxonomyOptions={mainFlowEvents};
 const catalogDirectory=document.querySelector('.catalog-directory');
@@ -5285,7 +5334,7 @@ function renderCodeEvidence(event){
   const commit=repository.commitShort||String(repository.commit||'').slice(0,10)||'未知版本';
   const namespace=(evidence.namespaces||[]).join(' / ')||'未分类';
   const contracts=getEventWireContracts(event);
-  const usageBase=evidence.callSiteCount?`${evidence.callSiteCount} 个直接调用点`:'未发现直接调用点';
+  const usageBase=event.historicalCodeEvidence?'历史版本调用证据；当前扫描未检出':evidence.callSiteCount?`${evidence.callSiteCount} 个直接调用点`:'未发现直接调用点';
   const usage=evidence.deprecated?`${usageBase} · 已标记弃用`:usageBase;
   const usageState=evidence.callSiteCount?'is-called':'is-defined-only';
   const normalizedFields=new Map(normalizeEventFields(event).map(field=>[field.rawName,field]));
@@ -7485,7 +7534,7 @@ function renderInterfaceEvidence(event){
   const evidence=assetOverride?{...baseEvidence,...assetOverride}:baseEvidence;
   const previewSrc=evidence.previewSrc||evidence.src;
   const fullSrc=evidence.fullSrc||evidence.src;
-  return `<section class="drawer-section interface-evidence-section"><div class="section-line interface-evidence-head"><h3>界面定位</h3><span>${escapeFieldHtml(evidence.evidenceLabel)}</span></div><button class="interface-evidence-preview" type="button" data-aggregation-image="${escapeFieldHtml(fullSrc)}" data-aggregation-preview="${escapeFieldHtml(previewSrc)}" data-aggregation-title="${escapeFieldHtml(evidence.title)}" data-aggregation-description="${escapeFieldHtml(evidence.description)}" aria-label="查看 ${escapeFieldHtml(event.name)} 界面定位大图"><img src="${escapeFieldHtml(previewSrc)}" alt="${escapeFieldHtml(evidence.title)}" loading="lazy" decoding="async" /><span class="interface-evidence-caption"><strong>点击查看大图</strong><small>页面定位示例，不代表生产上报验证</small></span></button></section>`;
+  return `<section class="drawer-section interface-evidence-section"><div class="section-line interface-evidence-head"><h3>界面定位</h3><span>${escapeFieldHtml(evidence.evidenceLabel)}</span></div><button class="interface-evidence-preview" type="button" data-aggregation-image="${escapeFieldHtml(fullSrc)}" data-aggregation-preview="${escapeFieldHtml(previewSrc)}" data-aggregation-title="${escapeFieldHtml(evidence.title)}" data-aggregation-description="${escapeFieldHtml(evidence.description)}" aria-label="查看 ${escapeFieldHtml(event.name)} 界面定位大图"><img src="${escapeFieldHtml(previewSrc)}" alt="${escapeFieldHtml(evidence.title)}" loading="lazy" decoding="async" /><span class="interface-evidence-caption"><strong>点击查看大图</strong><small>${event._hasAdminImage?'页面定位示例，不代表生产上报验证':'历史界面示例；待对照前端 9f3e4c77d4 复核'}</small></span></button></section>`;
 }
 
 function renderAggregationGuide(event){
@@ -7565,6 +7614,7 @@ openDrawerV2=function openDrawerWithFieldGroups(event){
   document.getElementById('drawerReportingLogic').textContent=reportingLogic.text;
   document.getElementById('drawerContent').innerHTML=`${renderInterfaceEvidence(event)}<section class="drawer-section field-explorer-section"><div class="section-line field-explorer-head"><h3>事件独有字段</h3><label class="field-search">⌕<input id="drawerFieldSearch" type="search" placeholder="搜索字段" aria-label="搜索事件独有字段" /></label></div>${fieldContractNotice}${renderFieldExplorer(event)}</section><div class="drawer-secondary">${renderAnalysisFilters(event)}${renderCommonContractReference(event)}${renderAggregationGuide(event)}<details class="drawer-section drawer-disclosure reporting-source-section"${reportingLogic.needsReview?' open':''}><summary><span>上报规则来源</span><small>${escapeFieldHtml(reportingLogic.behaviorLabel)}</small></summary><div class="drawer-disclosure-body"><p>${escapeFieldHtml(reportingLogic.evidenceText)}</p></div></details>${renderCodeEvidence(event)}${renderGovernanceAssessment(event)}${renderPayloadExample(event)}<details class="drawer-section drawer-disclosure"><summary><span>相似事件</span><small>${escapeFieldHtml(labels.similarLabel)}</small></summary><div class="drawer-disclosure-body"><div class="similar-list">${similar.map(item=>{const itemClassification=getCatalogViewClassification(item);const itemLogic=getEventReportingLogic(item,getCatalogClassification(item));const itemCollaboration=(itemClassification.collaborationTags||[]).length?` · 协作：${itemClassification.collaborationTags.join('、')}`:'';return `<button data-similar="${escapeFieldHtml(item.name)}"><strong class="similar-action-name">${escapeFieldHtml(item.name)}</strong><span class="similar-action-logic">${escapeFieldHtml(itemLogic.text)}</span><small>${escapeFieldHtml(itemClassification.businessDomain)} / ${escapeFieldHtml(itemClassification.businessModule)}${escapeFieldHtml(itemCollaboration)}</small></button>`;}).join('')||'<p class="code-evidence-empty">当前目录下暂无相似事件</p>'}</div></div></details><div class="source-note">来源：${escapeFieldHtml(event.source)} · Raw 分类：${escapeFieldHtml(event.group)} / ${escapeFieldHtml(event.domain)} · Theme：${escapeFieldHtml(event.theme)}</div></div>`;
   document.getElementById('drawerContent').insertAdjacentHTML('afterbegin',renderAdminAssetToolbar(event));
+  document.getElementById('drawerContent').insertAdjacentHTML('beforeend',renderSemanticReview(event));
   document.querySelectorAll('[data-similar]').forEach(button=>button.onclick=()=>openDrawerV2(events.find(item=>item.name===button.dataset.similar)));
   bindFieldExplorer();
   bindPayloadExample();

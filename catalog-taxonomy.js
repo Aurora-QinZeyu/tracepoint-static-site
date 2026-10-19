@@ -209,6 +209,12 @@
   ]));
 
   const ACTION_BEHAVIOR_OVERRIDES = Object.freeze({
+    gender_detect_trigger: { text: '建立检测记录时只带 filter_mode 上报；有效识别结果返回且非空时，再带 image_gender_result 上报，同一次检测可能发送两次', eventType: '检测阶段' },
+    account_v2_start: { text: '发起 V2 账号登录请求前上报，包含游客登录；不代表登录成功', eventType: '提交' },
+    account_v2_success: { text: 'V2 账号登录请求返回 code 为 0 时上报；不代表后续页面初始化已完成', eventType: '结果' },
+    app_detail_more: { text: 'App 详情存在时，打开设置弹窗前上报 action=open；弹窗 onClose 回调中上报 action=close', eventType: '交互' },
+    app_detail_userguide_expose: { text: '设置引导气泡 visible 变为 true 时上报；同一可见周期去重，隐藏后可再次上报，不是可视面积曝光检测', eventType: '曝光' },
+    app_detail_userguide_cancel: { text: '设置引导气泡可见期间注册的 effect 清理时上报，包含隐藏、卸载或依赖变化；不等同用户主动取消', eventType: '生命周期' },
     app_tab: {
       text: '用户在首页点击“滤镜”或“专题”内容页签时上报',
       eventType: '点击'
@@ -258,7 +264,7 @@
       eventType: '点击'
     },
     filter_more_click: {
-      text: '用户在移动端 App 详情页点击“更多”、打开操作菜单时上报',
+      text: '移动端详情页点击更多时上报；旧版与 V2 打开菜单，Revamp 切换菜单开关，两种方向均会发送',
       eventType: '点击'
     },
     filter_permission_entry_click: {
@@ -270,7 +276,7 @@
       eventType: '曝光'
     },
     filter_permission_update: {
-      text: '用户在权限弹窗选择公开或私密时上报；非会员选择私密时仅在订阅成功后上报',
+      text: '权限选择回调前上报，非会员私密需订阅成功后触发；不等待权限保存请求成功，也不证明服务端权限已更新',
       eventType: '点击'
     },
     group_photo_mask_click: {
@@ -278,7 +284,7 @@
       eventType: '点击'
     },
     image_input_view: {
-      text: '用户在作品详情或原子图片编辑器按住“查看输入”按钮，或在 A1 原生 App 任务结果图按住 350ms 后上报',
+      text: '作品详情或原子编辑器进入输入预览时发送；任务页 effect 在预览开启且有当前图片时发送，预览中换图也可重复；编辑器 app_id 实际取能力 type',
       eventType: '点击'
     },
     change: {
@@ -314,7 +320,7 @@
       eventType: '结果'
     },
     is_read: {
-      text: '用户看过指定引导、红点、推荐或消息后，前端将对应场景标记为已读时上报',
+      text: '按 scene 分别在引导继续点击、收藏气泡开始展示、切换收藏页签或通过门控首次开始抠图时发送；不统一代表用户已经阅读完成',
       eventType: '状态变化'
     },
     check_in_new: {
@@ -334,7 +340,7 @@
       eventType: '点击'
     },
     banner_new_click: {
-      text: '用户点击 Discover 新版 Hero 横幅中的 App 推荐项时上报',
+      text: '点击 Discover Hero 推荐项时，在校验 App ID 前上报；缺少 ID 也会发送，但不会打开详情，不代表详情打开成功',
       eventType: '点击'
     },
     ceator_activity_banner_click: {
@@ -346,21 +352,21 @@
       eventType: '点击'
     },
     creator_announcement_close: {
-      text: '用户关闭创作者公告页面时上报',
+      text: '创作者公告组件卸载时上报，不限于用户点击关闭按钮',
       eventType: '关闭'
     },
     creator_center_click: {
       text: '用户从新版首页或个人主页横幅进入创作者中心时上报',
       eventType: '点击'
     },
-    creator_center_close: { text: '用户关闭创作者中心页面时上报', eventType: '关闭' },
+    creator_center_close: { text: '创作者中心组件卸载时上报，不限于点击关闭按钮', eventType: '生命周期' },
     creator_center_datadescription_click: { text: '用户在创作者中心点击数据说明入口时上报', eventType: '点击' },
     creator_center_descriptionguide_click: { text: '用户在创作者中心点击说明引导入口时上报', eventType: '点击' },
     creator_center_newfollower_click: { text: '用户在创作者中心点击新增粉丝指标时上报', eventType: '点击' },
     creator_center_newlikes_click: { text: '用户在创作者中心点击新增点赞指标时上报', eventType: '点击' },
     creator_center_newruns_click: { text: '用户在创作者中心点击新增运行指标时上报', eventType: '点击' },
     creator_center_notes_click: { text: '用户在创作者中心点击备注或创作笔记入口时上报', eventType: '点击' },
-    creator_center_publishfirstfilter_click: { text: '尚未发布过任何滤镜的用户在创作者中心点击“前往发布首个滤镜”按钮时上报', eventType: '点击' },
+    creator_center_publishfirstfilter_click: { text: 'CreatorInspire 按钮处理函数在尝试滚动后上报；当前创作者中心已注释该组件 import，产品入口可达性待补证据', eventType: '点击' },
     creator_center_remixguide_click: { text: '用户在创作者中心的创作教学区域点击“二创滤镜指南”时上报', eventType: '点击' },
     creator_guide_click: { text: '用户在 PC Build 创建表单标题区点击创作者指南时上报', eventType: '点击' },
     creator_onboarding_popup_notnowclick: { text: '用户在移动端创作者新手引导弹窗点击“不感兴趣 / Not now, thanks”时上报', eventType: '点击' },
@@ -369,7 +375,7 @@
     leavea_ctivity_banner: { text: '用户点击 Creator Activity Hero 左上返回箭头、清空弹层栈并跳转首页前上报', eventType: '点击' },
     banner_exposure: { text: 'Discover、Discover 顶部或 Studio 横幅进入可视区域并被曝光管理器汇总时上报', eventType: '曝光' },
     creator_announcement_entryinfo_show: { text: '创作者公告中的 Remix 引导方式信息展示时上报', eventType: '曝光' },
-    creator_support_banner_exposure_PC: { text: 'PC 全局导航中的创作者支持横幅展示时上报', eventType: '曝光' },
+    creator_support_banner_exposure_PC: { text: 'PC 创作者支持横幅组件挂载时上报，共用 ref 防重，无视口可见检测', eventType: '曝光' },
     banner_click_startcreate: { text: '用户点击 PC 全局导航视频横幅中的“Start create”入口时上报', eventType: '点击' },
     banner_click_viewdetails: { text: '用户点击 PC 全局导航视频横幅中的“View details”入口时上报', eventType: '点击' },
     creator_bonus_click: { text: '用户点击创作者奖励入口时上报', eventType: '点击' },
@@ -379,11 +385,11 @@
       eventType: '点击'
     },
     image_upload_front: {
-      text: '用户在 Remix 选择或更换图片后，格式与体积校验、上传复用、上传失败或合照人数检查得到结果时上报',
+      text: '图片格式/体积校验、上传结果及合照人数检查时发送，failure_reason 包含 success；回调抛错可另报“上传过程异常”，PC legacy 另带 file_path 等字段',
       eventType: '结果'
     },
     image_upload_result: {
-      text: '用户在 App 详情页上传或复用输入图片取得处理结果时上报；事件先于图片写入表单',
+      text: 'App 详情的上传完成回调发送 success/failure，搜索场景同时带搜索词、搜索ID和搜索方式；具体发送顺序取决于调用路径',
       eventType: '结果'
     },
     others_filters_click: {
@@ -435,8 +441,8 @@
       eventType: '点击'
     },
     video_upload_result: {
-      text: '用户在 PC Build 的动作模仿功能选择视频后，文件校验完成时上报',
-      eventType: '结果'
+      text: 'PC animate 节点选视频后的文件校验结果，发生在网络上传前；success 不代表上传成功，元信息失败也可能回退 0 秒及空分辨率',
+      eventType: '文件校验'
     },
     video_upload_success: {
       text: '用户在视频换脸中上传自定义视频成功，或流程因登录、积分、使用权限及上传错误中断时上报',
@@ -475,8 +481,8 @@
       eventType: '状态变化'
     },
     survey_popup: {
-      text: '用户提交支付取消原因问卷时上报',
-      eventType: '提交'
+      text: '问卷提交未被禁用时发送选项文本，随后关闭并提示；此处未调用问卷提交接口',
+      eventType: '提交尝试'
     },
     pay_cancel_recovery: {
       text: '支付取消后的挽回弹窗展示时上报',
@@ -507,8 +513,8 @@
       eventType: '系统'
     },
     onboarding_performance: {
-      text: '新手引导初始化与接口加载耗时采集完成时上报',
-      eventType: '系统'
+      text: '欢迎页挂载时且 Native 启动时间可用才发送；总耗时从 webViewCreateTime 到挂载，页面阶段从 loadHtmlFinishTime 到挂载，单位毫秒，不等媒体加载完成',
+      eventType: '挂载性能'
     },
     app_detail_page_leave: {
       text: '用户离开应用详情页并结算停留时长时上报',
@@ -519,7 +525,7 @@
       eventType: '状态变化'
     },
     chatbot_exposure_direct: {
-      text: 'Chatbot 新朋友或更多朋友列表中的卡片进入可视区域时批量上报',
+      text: 'Chatbot 新朋友、更多朋友或收藏列表中的卡片满足各自曝光条件时上报；各场景字段有所不同',
       eventType: '曝光'
     },
     chatbot_bulb_toggle: {
@@ -704,19 +710,19 @@
     feed_guide_click: { text: '用户点击 Explore Feed 中正在显示小手引导的目标 App 卡片或生成按钮时上报', eventType: '点击' },
     feed_guide_exposure: { text: '用户在 Explore Feed 向下浏览并停留 1.5 秒，目标 App 开始展示小手引导时上报', eventType: '曝光' },
     skip_button_click: { text: 'Onboarding 因约 8 秒初始化等待超时、Android 返回手势或后续流程退出而关闭时上报；当前没有可见 Skip 按钮', eventType: '状态变化' },
-    try_it_button_click: { text: '用户在 Onboarding 推荐页倒计时结束后点击 Try it 按钮时上报', eventType: '点击' },
+    try_it_button_click: { text: '当前仅保留 Try it 点击定义，未找到本地前端直接调用；不据旧页面说明推定当前上报', eventType: '点击' },
     addtodesktop_load_success: { text: '用户打开 App 时上报，并标记是否首次打开', eventType: '结果' },
     landing_build_click: { text: '用户在 PC 创作者落地页点击 Build 创作入口时上报', eventType: '点击' },
     referral_link_success: { text: '用户通过带邀请信息的分享链接完成注册时上报', eventType: '结果' },
     feedback_popup_button_click: { text: '用户在反馈弹窗中确认前往 WhatsApp，或取消、点击弹窗外区域关闭时上报', eventType: '点击' },
     list_feedback_click: { text: '用户在个人设置中点击 Feedback、尝试打开外部反馈问卷前上报', eventType: '点击' },
     message_button_click: { text: '用户点击本人 Profile 消息图标、打开消息列表前上报当前客户端未读数快照', eventType: '点击' },
-    message_tabbar_click: { text: '用户切换消息分类时上报目标 Tab 与切换前的未读状态', eventType: '点击' },
+    message_tabbar_click: { text: '切换消息分类时发送目标 Tab；is_read=true 表示切换前没有未读，false 表示切换前有未读，非清零后的状态', eventType: '点击' },
     rating_popup_click: { text: '用户在五星评分引导弹窗点击“给出五星好评”或关闭按钮时上报', eventType: '点击' },
     rating_popup_show: { text: '五星评分引导弹窗打开时上报', eventType: '曝光' },
     renewal_retention_popup_click: { text: '用户在续订激励弹窗点击 START 或关闭 X 时上报；START 在支付结果前记录，不代表续订成功', eventType: '点击' },
     retention_popup_button_click: { text: '用户在移动端付费挽留弹窗点击订阅或开始免费试用，且商品与订阅方案数据齐全时上报；在发起订阅前记录，300ms 内重复点击被抑制', eventType: '点击' },
-    retention_popup_click: { text: '用户在续订离开挽留弹窗点击保留优惠，或点击弹窗下方关闭图标时上报；保留分支在订阅结果前记录', eventType: '点击' },
+    retention_popup_click: { text: '当前仅保留续订挽留按钮定义，未找到直接调用；start_button/close_button 为定义枚举，不代表当前界面已上报', eventType: '点击' },
     rate_popup_click_gotogoogle: { text: '用户在评分弹窗选择 5 星并点击前往 Google Play 评分时上报', eventType: '点击' },
     rate_popup_click_submit: { text: '用户在评分弹窗选择 1 至 4 星并点击提交时上报', eventType: '提交' },
     rate_popup_close: { text: '用户点击评分弹窗的关闭按钮时上报', eventType: '关闭' },
@@ -778,7 +784,7 @@
     remix_t2i_textbox_click: { text: '用户在 Remix 历史生成弹窗聚焦文生图提示词输入框时上报', eventType: '聚焦' },
     reset_button_click: { text: '当前版本的换脸页未挂载旧筛选弹窗；若恢复使用，用户修改分类或排序后点击 Reset、恢复弹窗打开时的值时上报', eventType: '点击' },
     text_edit_page_finish: { text: '用户完成表情包文字编辑，并且编辑后图片上传成功时上报', eventType: '结果' },
-    text_function_click: { text: '用户在表情包任务结果页点击“添加文字”功能时上报', eventType: '点击' },
+    text_function_click: { text: '任务结果的添加文字处理发送；缺少图片 URL 时也可发送，不代表编辑弹窗实际打开', eventType: '点击' },
     cutout_function_click: { text: '用户在任务结果中点击“抠图”功能、积分与并发检查前上报', eventType: '点击' },
     describe_edit_click: { text: '用户在移动端 Remix 点击文案描述、准备打开描述编辑弹窗时上报', eventType: '点击' },
     describe_pop_change_close: { text: '用户修改过描述后退出 Remix 描述编辑弹窗时上报', eventType: '关闭' },
@@ -805,28 +811,28 @@
     image_delete_click: { text: '用户选择删除图片或视频、准备打开删除确认流程时上报', eventType: '点击' },
     image_delete_success: { text: '上传历史或任务结果的删除请求返回成功时上报', eventType: '结果' },
     generate_video_result_check: { text: '用户点击视频任务完成通知中的查看按钮、准备打开对应结果时上报', eventType: '点击' },
-    generate_video_result_show: { text: '前台收到视频任务完成通知并准备展示通知横幅时上报', eventType: '曝光' },
+    generate_video_result_show: { text: '通知组件的任务 App ID 或图片列表变化且能取到 ID 时上报；即使通知隐藏或被其他弹窗阻挡也可能发送，不代表实际可见曝光', eventType: '通知状态' },
     history_click: { text: '用户点击或滑动切换到另一条历史生成结果时上报', eventType: '点击' },
     image_delete_enter: { text: '用户长按上传历史图片或个人主页草稿、进入删除选择状态时上报', eventType: '长按' },
     image_download: { text: '用户在 PC 下载历史或任务结果图片、视频时上报；不表示下载成功', eventType: '点击' },
-    add_whatsapp_button_click: { text: '用户在方形表情包结果页点击“添加到 WhatsApp”时上报；当前没有可进入该结果页的产品入口', eventType: '点击' },
-    add_whatsapp_result: { text: '系统收到“添加到 WhatsApp”的成功或失败结果时上报；当前没有可进入该结果页的产品入口', eventType: '结果' },
+    add_whatsapp_button_click: { text: '表情包结果页点击添加 WhatsApp 时，在压缩图片和调用 Native 前上报；结果页已注册但未找到产品侧打开调用，可达性待运行验证', eventType: '点击' },
+    add_whatsapp_result: { text: '原生调用 window.trackWhatsAppEmojiResult 时上报，is_success 原样取回调参数；非点击后的自动成功判定，页面入口和原生回调待运行验证', eventType: '结果' },
     app_publish_success: { text: '应用发布请求返回成功结果时上报', eventType: '结果' },
     award_announcement_click: { text: '用户点击尚未公布的获奖区域，或点击查看已公布的获奖结果时上报', eventType: '点击' },
-    generate_picture_expose: { text: 'Chatbot 对话中的图片缩略图达到曝光条件时，每张图片上报一次', eventType: '曝光' },
+    generate_picture_expose: { text: 'Chatbot 缩略图消息达到默认 30% 可见比例后进入曝光计时；每 2 秒批量检查停留超过 400ms，离开及卸载也可能触发待发检查；按消息 ID 在当前列表 observer 生命周期去重，重新挂载可重复', eventType: '曝光' },
     result_pop_show: { text: 'Remix 生成请求创建成功，或用户点击已有结果后，在打开结果弹窗前上报；不证明结果已生成或弹窗已展示', eventType: '准备展示' },
     screen_print: { text: 'A1 App 原生 WebView 检测到系统截屏并调用 window.handleScreenshot 时上报；普通 H5 不会自行检测', eventType: '截图' },
-    search: { text: '移动端提交新搜索词后，在当前结果页签的搜索请求结束时上报；切换用户页签或改变排序可再次记录，请求失败被捕获后也可能以 0 结果上报', eventType: '结果' },
+    search: { text: '移动端 V3 搜索需请求成功且有 data 后发送，初始与替换页签查询计数，翻页不发送；旧搜索链和 legacy 首请求另有边界，不统一表示所有请求结束', eventType: '结果' },
     search_history_delete: { text: '搜索历史非空时，移动端编辑态删除单条后上报 delete_one，确认清空或 PC 端点垃圾桶清空后上报 delete_all', eventType: '删除' },
     video_download: { text: '用户开始下载视频结果时上报；不表示视频已经保存，该旧事件已标记即将停用', eventType: '点击' },
-    video_full_screen_click: { text: '用户点击切换视频全屏或退出全屏时上报', eventType: '点击' },
-    video_play_click: { text: '用户在视频 App 或换脸详情页点击播放或暂停时上报', eventType: '点击' },
+    video_full_screen_click: { text: '播放器尝试进入或退出全屏后发送目标状态；未等待系统 API 成功，不证明真实全屏变化', eventType: '点击' },
+    video_play_click: { text: '播放器尝试播放或暂停前发送 template_id；未等待 play() 成功，事件不带播放/暂停状态', eventType: '点击' },
     remix_whatsapp_popup_close: { text: '用户点击 Creator Assistant 引导弹窗外部区域或“Not now, thanks”时上报；点击“Add Now”不报此事件', eventType: '关闭' },
     result_page_inputinfo_click: { text: '当前版本没有可进入该功能的产品入口；若恢复使用，用户在移动任务结果页将输入信息面板从关闭切换为打开时上报', eventType: '点击' },
     result_pop_close: { text: 'Remix 结果弹窗完成关闭时上报，包括主动关闭、返回编辑和进入发布流程', eventType: '关闭' },
     result_pop_publish_click: { text: '用户在 Remix 结果弹窗点击可用的“发布”按钮时上报', eventType: '点击' },
-    publish_pop_publish: { text: '用户在 Remix 发布弹窗点击可用的发布按钮时上报；与 publish_pop_publish_click 由同一次点击连续触发', eventType: '点击' },
-    publish_pop_publish_click: { text: '用户在 Remix 发布弹窗点击可用的发布按钮时上报；与 publish_pop_publish 由同一次点击连续触发', eventType: '点击' },
+    publish_pop_publish: { text: 'Remix 发布按钮通过名称和封面检查后发送，与 publish_pop_publish_click 连续触发；后续自动保存忙或发布失败仍可能已计数', eventType: '点击' },
+    publish_pop_publish_click: { text: '与 publish_pop_publish 同次点击连续发送，包含 app_id、appid 和 filter_level；发生在自动保存忙检查及发布请求前', eventType: '点击' },
     publish_pop_show: { text: '用户从 Remix 编辑页或结果弹窗点击发布、准备打开发布弹窗时上报', eventType: '曝光' },
     remix_whatsapp_entry_click: { text: '固定版本唯一显示位置在 Creator Announcement 的 Guidance 卡；该页可直达但常规入口未证实，点击后打开引导弹窗并上报', eventType: '点击' },
     remix_whatsapp_link_click: { text: '用户在 Creator Assistant 弹窗点击“Add Now”、准备打开可配置地址时上报；不代表 WhatsApp 已打开', eventType: '点击' },
@@ -836,11 +842,23 @@
     image_exposure: { text: 'PC 个人图片列表或图片详情达到曝光条件后，按 1 秒批量上报并在会话内去重', eventType: '曝光' },
     image_publish: { text: '旧版单图发布流程准备发送发布请求时上报；当前页面没有使用这条流程', eventType: '提交' },
     tasklist_click: { text: '用户在 PC 点击任务列表的展开或收起控件时上报', eventType: '点击' },
-    image_pop_direct_close: { text: '用户未选择新图而通过任一正常关闭路径退出 Remix 参考图或合照编辑弹窗时上报；REF_CHANGE 状态残留可能抑制后续上报', eventType: '关闭' },
+    image_pop_direct_close: { text: 'Remix 参考图弹窗关闭回调仅在 REF_CHANGE 缓存为空时发送，残留值可能抑制上报；历史合照组件判断 ref 对象恒为真，且未找到当前入口，不代表统一的“无修改关闭”', eventType: '关闭' },
     mute_button_click: { text: '用户切换视频静音状态，或点击播放后自动恢复声音时上报', eventType: '点击' },
     publish_click_withoutname: { text: '移动端名称为空或未选中最佳封面，或 PC Build 名称为空时，用户点击被禁用的发布区域后上报', eventType: '点击' },
     publish_pop_close: { text: 'Remix 发布弹窗完成关闭时上报', eventType: '关闭' },
     publish_pop_direct_close: { text: '用户未修改封面、名称或权限就点击关闭 Remix 发布弹窗时上报', eventType: '关闭' },
+    onboarding_start: { text: 'Android 启动通过游客能力、登录状态和用户类型初判后发送，每次 hook 生命周期按 ref 去重；此时可能仍等待用户信息，最终不展示欢迎页也可已发送', eventType: '资格初判' },
+    onerway_cancel_popup_button_click: { text: '取消订阅确认后，ToC FAQ 在请求成功或失败后都可能发送；API 定价页仅返回 code==0 后发送，不可统一解释为取消成功', eventType: '操作结果' },
+    post_button_click: { text: '进入发布编辑流程并查询话题成功后发送：移动端在编辑器挂载 effect，PC 在打开编辑弹窗前；不是发布按钮提交或发布成功', eventType: '进入编辑' },
+    push_message_send: { text: '指定视频任务完成且页面在后台时，在调用 Android 通知方法前发送；表示通知尝试，不代表系统成功送达，也未按任务 ID 去重', eventType: '通知尝试' },
+    remix_guide_start_click: { text: 'Remix 引导 onFinish 回调触发后发送并写完成状态；实际开始按钮不发送此事件，原始 start 命名保留', eventType: '引导结束' },
+    retention_popup_click: { text: '当前仅保留 save_button/give_up_button 定义，未找到直接上报调用；保留历史资产，不推定当前点击会发送', eventType: '仅定义' },
+    sns_button_click: { text: '国内点击微信二维码入口发送 wechat，海外点击反馈入口发送 whatsapp，但实际打开反馈问卷；不代表 WhatsApp 成功打开', eventType: '点击' },
+    tag_expand_click: { text: 'Explore 展开分类且徽标类型存在时发送，badge_show 为当前徽标显示状态 0/1；不是每次分类展开都发', eventType: '点击' },
+    chatbot_restart_popup_click: { text: '确认时在重启请求前发送 is_success=true，取消发送 false；该字段区分确认与取消，不代表重启结果', eventType: '确认选择' },
+    chatbot_message_send: { text: '普通聊天在 Socket ACK 后按响应判断成功；Imagine custom_image 在生成请求前固定发送 true，两条分支成功口径不同', eventType: '分支上报' },
+    pay_order_create_result: { text: '建单返回即发送 success，早于 Native 支付；同一 try 内后续异常也可发送 failed，同 attempt 可能出现两条结果', eventType: '建单与异常' },
+    filter_result_exposure: { text: '应用筛选回调中，结果数大于零且选项名非空时发送；不是逐卡片可视曝光', eventType: '筛选结果' },
     ...USER_PLATFORM_BEHAVIOR_OVERRIDES
   });
 
